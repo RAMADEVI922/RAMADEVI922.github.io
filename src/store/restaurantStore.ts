@@ -172,9 +172,44 @@ export const useRestaurantStore = create<RestaurantStore>()(
   cartTotal: () => get().cart.reduce((sum, item) => sum + item.price * item.quantity, 0),
 
   orders: [],
+  addItemsToOrder: (tableId, items) => {
+    set((state) => {
+      const existing = state.orders.find((o) => o.tableId === tableId && o.status !== 'served');
+      if (!existing) return state;
+
+      const updatedItems = [...existing.items];
+      items.forEach((item) => {
+        const found = updatedItems.find((i) => i.id === item.id);
+        if (found) {
+          found.quantity += item.quantity;
+        } else {
+          updatedItems.push(item);
+        }
+      });
+
+      const updatedOrder: Order = {
+        ...existing,
+        items: updatedItems,
+        total: updatedItems.reduce((sum, i) => sum + i.price * i.quantity, 0),
+      };
+
+      return {
+        orders: state.orders.map((o) => (o.id === existing.id ? updatedOrder : o)),
+      };
+    });
+  },
   placeOrder: (tableId) => {
-    const { cart, cartTotal, clearCart, addNotification } = get();
+    const { cart, cartTotal, clearCart, addNotification, addItemsToOrder } = get();
     if (cart.length === 0) return;
+
+    const existingOrder = get().orders.find((o) => o.tableId === tableId && o.status !== 'served');
+    if (existingOrder) {
+      addItemsToOrder(tableId, cart);
+      addNotification({ tableId, type: 'extra_order', message: `Table ${tableId} added more items` });
+      clearCart();
+      return;
+    }
+
     const order: Order = {
       id: `O${Date.now()}`,
       tableId,

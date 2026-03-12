@@ -80,8 +80,19 @@ function CartSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
 
   const handlePlaceOrder = () => {
     if (!currentTableId) return;
+
+    const hasExistingOrder = useRestaurantStore.getState().orders.some(
+      (o) => o.tableId === currentTableId && o.status !== 'served'
+    );
+
     placeOrder(currentTableId);
-    toast.success('Order placed! The waiter will confirm shortly.');
+
+    if (hasExistingOrder) {
+      toast.success('Added more items! The waiter has been notified.');
+    } else {
+      toast.success('Order placed! The waiter will confirm shortly.');
+    }
+
     onClose();
   };
 
@@ -148,7 +159,7 @@ function CartSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
 
 export default function CustomerMenu() {
   const { tableId } = useParams<{ tableId: string }>();
-  const { menuItems, cart, cartTotal, setCurrentTableId, addNotification, categoryImages } = useRestaurantStore();
+  const { menuItems, cart, cartTotal, setCurrentTableId, addNotification, categoryImages, placeOrder } = useRestaurantStore();
   const [cartOpen, setCartOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 

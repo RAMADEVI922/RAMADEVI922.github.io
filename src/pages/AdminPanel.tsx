@@ -374,7 +374,12 @@ function WaiterManagement() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-xl font-bold">Manage Waiters</h2>
-        <Button size="sm" onClick={() => setShowForm(!showForm)}><Plus className="h-4 w-4 mr-1" /> Add Waiter</Button>
+        <div className="flex items-center gap-2">
+          <Link to="/waiter">
+            <Button size="sm" variant="outline">Open Waiter View</Button>
+          </Link>
+          <Button size="sm" onClick={() => setShowForm(!showForm)}><Plus className="h-4 w-4 mr-1" /> Add Waiter</Button>
+        </div>
       </div>
       {showForm && (
         <div className="border border-border rounded-xl p-5 mb-6 space-y-4">

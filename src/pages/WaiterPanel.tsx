@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { useRestaurantStore } from '@/store/restaurantStore';
 import { Button } from '@/components/ui/button';
 import { Check, Clock, Bell, Receipt, UtensilsCrossed, ChevronRight } from 'lucide-react';
@@ -10,6 +11,30 @@ export default function WaiterPanel() {
   const pendingOrders = orders.filter((o) => o.status === 'pending');
   const confirmedOrders = orders.filter((o) => o.status === 'confirmed' || o.status === 'preparing');
   const unreadNotifications = notifications.filter((n) => !n.read);
+
+  const prevNotificationCount = useRef(unreadNotifications.length);
+
+  useEffect(() => {
+    if (unreadNotifications.length > prevNotificationCount.current) {
+      const latest = unreadNotifications[0];
+      if (latest) {
+        const tableNum = Number(latest.tableId.replace(/\D/g, '')) || 1;
+        const frequency = 440 + (tableNum - 1) * 50;
+        const duration = 0.18;
+        const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.frequency.value = frequency;
+        osc.type = 'sine';
+        gain.gain.value = 0.2;
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + duration);
+      }
+    }
+    prevNotificationCount.current = unreadNotifications.length;
+  }, [unreadNotifications]);
 
   const handleConfirmOrder = (orderId: string) => {
     updateOrderStatus(orderId, 'confirmed');

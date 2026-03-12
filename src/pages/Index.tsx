@@ -13,11 +13,8 @@ export default function Index() {
             <span className="font-bold text-lg">QR Menu</span>
           </div>
           <div className="flex gap-2">
-            <Link to="/admin">
-              <Button variant="ghost" size="sm">Admin</Button>
-            </Link>
-            <Link to="/waiter">
-              <Button variant="ghost" size="sm">Waiter</Button>
+            <Link to="/menu/T1">
+              <Button variant="ghost" size="sm">View Menu</Button>
             </Link>
           </div>
         </div>
