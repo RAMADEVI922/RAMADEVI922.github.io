@@ -125,6 +125,12 @@ function MenuManagement() {
 
   const categories = [...new Set(menuItems.map((i) => i.category))];
 
+  const openAddForCategory = (category: string) => {
+    setForm({ name: '', description: '', price: '', category, dietary: '', image: '' });
+    setEditingId(null);
+    setShowForm(true);
+  };
+
   const handleSubmit = () => {
     if (!form.name || !form.price || !form.category) {
       toast.error('Please fill all required fields');
@@ -254,6 +260,9 @@ function MenuManagement() {
               </div>
             </div>
             <div className="flex items-center gap-2">
+              <Button size="sm" onClick={() => openAddForCategory(cat)}>
+                <Plus className="h-4 w-4 mr-1" /> Add item
+              </Button>
               <input
                 type="file"
                 accept="image/*"

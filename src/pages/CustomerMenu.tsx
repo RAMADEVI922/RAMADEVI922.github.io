@@ -266,12 +266,41 @@ export default function CustomerMenu() {
               </button>
               <span className="text-sm text-muted-foreground">{selectedCategory}</span>
             </div>
-            <div className="flex gap-4 overflow-x-auto pb-4 pr-1 snap-x snap-mandatory">
-              {categories.get(selectedCategory)?.map((item) => (
-                <div key={item.id} className="shrink-0 w-[340px] snap-start rounded-xl border border-border bg-card p-4">
-                  <MenuItemCard item={item} />
-                </div>
-              ))}
+            <div className="space-y-8 pb-4">
+              {(() => {
+                const items = categories.get(selectedCategory) ?? [];
+                const vegItems = items.filter((item) => item.dietary?.includes('V'));
+                const nonVegItems = items.filter((item) => !item.dietary?.includes('V'));
+
+                return (
+                  <>
+                    {vegItems.length > 0 && (
+                      <div>
+                        <h2 className="text-lg font-semibold mb-3">Veg</h2>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          {vegItems.map((item) => (
+                            <div key={item.id} className="rounded-xl border border-border bg-card p-4">
+                              <MenuItemCard item={item} />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {nonVegItems.length > 0 && (
+                      <div>
+                        <h2 className="text-lg font-semibold mb-3">Non‑Veg</h2>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          {nonVegItems.map((item) => (
+                            <div key={item.id} className="rounded-xl border border-border bg-card p-4">
+                              <MenuItemCard item={item} />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
             </div>
           </div>
         )}
