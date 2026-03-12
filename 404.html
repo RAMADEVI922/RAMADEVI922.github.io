@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>QR Menu</title>
+    <script type="text/javascript">
+      // Store the path that caused the 404
+      var pathSegmentsToKeep = 1;
+      var l = window.location;
+      var pathname = l.pathname;
+      
+      // Only redirect if we're in the QRMENU subdirectory and not at the root
+      if (pathname.includes('/QRMENU/') && pathname !== '/QRMENU/' && pathname !== '/QRMENU/index.html') {
+        // Store the full path for restoration
+        sessionStorage.redirect = pathname + l.search + l.hash;
+        // Redirect to index.html
+        l.replace(l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') + '/QRMENU/index.html');
+      }
+    </script>
+  </head>
+  <body>
+  </body>
+</html>
