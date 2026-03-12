@@ -1,8 +1,9 @@
 import { Fragment, useState } from 'react';
 import { useRestaurantStore, type MenuItem } from '@/store/restaurantStore';
+import { useClerk } from '@clerk/react';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
-import { Plus, Trash2, Edit, Menu, LayoutDashboard, UtensilsCrossed, Users, TableProperties, Receipt, ChevronRight } from 'lucide-react';
+import { Plus, Trash2, Edit, Menu, LayoutDashboard, UtensilsCrossed, Users, TableProperties, Receipt, ChevronRight, LogOut } from 'lucide-react';
 import { toast } from 'sonner';
 import QRCode from 'react-qr-code';
 import { Link, useLocation } from 'react-router-dom';
@@ -18,6 +19,12 @@ const navItems: { id: AdminTab; label: string; icon: React.ReactNode }[] = [
 ];
 
 function Sidebar({ activeTab, setActiveTab }: { activeTab: AdminTab; setActiveTab: (t: AdminTab) => void }) {
+  const { signOut } = useClerk();
+
+  const handleLogout = async () => {
+    await signOut();
+  };
+
   return (
     <aside className="w-[240px] border-r border-border bg-background shrink-0 h-screen sticky top-0 flex flex-col">
       <div className="p-6">
@@ -40,10 +47,19 @@ function Sidebar({ activeTab, setActiveTab }: { activeTab: AdminTab; setActiveTa
           </button>
         ))}
       </nav>
-      <div className="p-4 border-t border-border">
-        <Link to="/" className="text-xs text-muted-foreground hover:text-foreground transition-colors">
+      <div className="p-4 border-t border-border space-y-2">
+        <Link to="/" className="text-xs text-muted-foreground hover:text-foreground transition-colors block">
           ← Back to Home
         </Link>
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full justify-start gap-2 text-xs"
+          onClick={handleLogout}
+        >
+          <LogOut className="h-3 w-3" />
+          Logout
+        </Button>
       </div>
     </aside>
   );
