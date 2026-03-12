@@ -16,7 +16,7 @@ const App = () => (
     <TooltipProvider>
       <Toaster />
       <Sonner />
-      <BrowserRouter>
+      <BrowserRouter basename="/QRMENU/">
         <Routes>
           <Route path="/" element={<Index />} />
           <Route path="/menu/:tableId" element={<CustomerMenu />} />
