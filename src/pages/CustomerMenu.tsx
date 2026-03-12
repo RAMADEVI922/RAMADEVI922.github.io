@@ -76,18 +76,26 @@ function MenuItemCard({ item }: { item: MenuItem }) {
 }
 
 function CartSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { cart, cartTotal, updateCartQuantity, removeFromCart, clearCart, placeOrder, currentTableId, addNotification } = useRestaurantStore();
+  const { cart, cartTotal, updateCartQuantity, removeFromCart, clearCart, placeOrder, currentTableId, addNotification, orders } = useRestaurantStore();
+
+  const currentOrder = orders.find((o) => o.tableId === currentTableId && o.status !== 'served');
+
+  const getRemainingTime = () => {
+    if (!currentOrder) return 0;
+    return Math.max(0, currentOrder.readyAt - Date.now());
+  };
+
+  const formatTime = (ms: number) => {
+    const mins = Math.ceil(ms / 60000);
+    return `${mins} min${mins === 1 ? '' : 's'}`;
+  };
 
   const handlePlaceOrder = () => {
     if (!currentTableId) return;
 
-    const hasExistingOrder = useRestaurantStore.getState().orders.some(
-      (o) => o.tableId === currentTableId && o.status !== 'served'
-    );
-
     placeOrder(currentTableId);
 
-    if (hasExistingOrder) {
+    if (currentOrder) {
       toast.success('Added more items! The waiter has been notified.');
     } else {
       toast.success('Order placed! The waiter will confirm shortly.');
@@ -145,9 +153,18 @@ function CartSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
                   <span>Total</span>
                   <span className="tabular-nums">₹{cartTotal().toLocaleString('en-IN')}</span>
                 </div>
-                <Button className="w-full" size="lg" onClick={handlePlaceOrder}>
-                  Confirm Order
-                </Button>
+                {currentOrder ? (
+                  <div className="space-y-2">
+                    <p className="text-sm text-muted-foreground">Your order is being prepared. Estimated ready in {formatTime(getRemainingTime())}.</p>
+                    <Button className="w-full" size="lg" onClick={handlePlaceOrder}>
+                      Add extra items
+                    </Button>
+                  </div>
+                ) : (
+                  <Button className="w-full" size="lg" onClick={handlePlaceOrder}>
+                    Confirm Order
+                  </Button>
+                )}
               </div>
             )}
           </div>
@@ -159,7 +176,7 @@ function CartSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
 
 export default function CustomerMenu() {
   const { tableId } = useParams<{ tableId: string }>();
-  const { menuItems, cart, cartTotal, setCurrentTableId, addNotification, categoryImages, placeOrder } = useRestaurantStore();
+  const { menuItems, cart, cartTotal, setCurrentTableId, addNotification, categoryImages, placeOrder, orders } = useRestaurantStore();
   const [cartOpen, setCartOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 

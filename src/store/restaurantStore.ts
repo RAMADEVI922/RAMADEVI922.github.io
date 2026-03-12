@@ -23,6 +23,7 @@ export interface Order {
   status: 'pending' | 'confirmed' | 'preparing' | 'served';
   total: number;
   createdAt: Date;
+  readyAt: number; // timestamp when order is estimated to be ready
 }
 
 export interface Table {
@@ -178,6 +179,7 @@ export const useRestaurantStore = create<RestaurantStore>()(
       if (!existing) return state;
 
       const updatedItems = [...existing.items];
+      let addedQty = 0;
       items.forEach((item) => {
         const found = updatedItems.find((i) => i.id === item.id);
         if (found) {
@@ -185,12 +187,17 @@ export const useRestaurantStore = create<RestaurantStore>()(
         } else {
           updatedItems.push(item);
         }
+        addedQty += item.quantity;
       });
+
+      const addedMs = addedQty * 15 * 60 * 1000; // 15 minutes per item
+      const nextReadyAt = Math.max(existing.readyAt, Date.now()) + addedMs;
 
       const updatedOrder: Order = {
         ...existing,
         items: updatedItems,
         total: updatedItems.reduce((sum, i) => sum + i.price * i.quantity, 0),
+        readyAt: nextReadyAt,
       };
 
       return {
@@ -210,6 +217,9 @@ export const useRestaurantStore = create<RestaurantStore>()(
       return;
     }
 
+    const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0);
+    const readyAt = Date.now() + totalItems * 15 * 60 * 1000;
+
     const order: Order = {
       id: `O${Date.now()}`,
       tableId,
@@ -217,6 +227,7 @@ export const useRestaurantStore = create<RestaurantStore>()(
       status: 'pending',
       total: cartTotal(),
       createdAt: new Date(),
+      readyAt,
     };
     set((state) => ({ orders: [order, ...state.orders] }));
     addNotification({ tableId, type: 'order', message: `New order from Table ${tableId}` });
