@@ -143,7 +143,9 @@ export const useRestaurantStore = create<RestaurantStore>()(
       addMenuItem: async (item) => {
         set((state) => ({ menuItems: [...state.menuItems, item] }));
         try {
-          await upsertMenuItem(item);
+          upsertMenuItem(item).catch(error => {
+            console.warn("Failed to sync menu item to Firestore:", error);
+          });
         } catch (error) {
           // eslint-disable-next-line no-console
           console.warn("Failed to sync menu item to Firestore:", error);
@@ -165,7 +167,9 @@ export const useRestaurantStore = create<RestaurantStore>()(
     try {
       const current = get().menuItems.find((item) => item.id === id);
       if (current) {
-        await upsertMenuItem({ ...current, ...updates });
+        upsertMenuItem({ ...current, ...updates }).catch(error => {
+          console.warn("Failed to sync menu item update to Firestore:", error);
+        });
       }
     } catch (error) {
       // eslint-disable-next-line no-console
@@ -178,7 +182,9 @@ export const useRestaurantStore = create<RestaurantStore>()(
     }));
 
     try {
-      await deleteMenuItemFromDb(id);
+      deleteMenuItemFromDb(id).catch(error => {
+        console.warn("Failed to delete menu item from Firestore:", error);
+      });
     } catch (error) {
       // eslint-disable-next-line no-console
       console.warn("Failed to delete menu item from Firestore:", error);

@@ -260,8 +260,9 @@ export default function CustomerMenu() {
                         className="h-full w-full object-cover"
                       />
                     ) : (
-                      <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-                        No image
+                      <div className="flex flex-col h-full bg-primary/5 items-center justify-center text-xs text-muted-foreground font-semibold">
+                        <span className="text-xl mb-1 opacity-50">🍽️</span>
+                        {category}
                       </div>
                     )}
                   </div>

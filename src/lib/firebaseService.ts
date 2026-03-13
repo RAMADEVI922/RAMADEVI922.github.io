@@ -43,7 +43,7 @@ export async function uploadMenuItemImage(
   const storageRef = ref(storage, `menuItems/${itemId}/${file.name}`);
   const uploadTask = uploadBytesResumable(storageRef, file);
 
-  return new Promise((resolve, reject) => {
+  const uploadPromise = new Promise<string>((resolve, reject) => {
     uploadTask.on(
       "state_changed",
       (snapshot) => {
@@ -52,11 +52,25 @@ export async function uploadMenuItemImage(
       },
       (error) => reject(error),
       async () => {
-        const url = await getDownloadURL(uploadTask.snapshot.ref);
-        resolve(url);
+        try {
+          const url = await getDownloadURL(uploadTask.snapshot.ref);
+          resolve(url);
+        } catch (e) {
+          reject(e);
+        }
       }
     );
   });
+
+  // Adding a 15-second timeout to prevent the UI from hanging indefinitely
+  const timeoutPromise = new Promise<string>((_, reject) =>
+    setTimeout(() => {
+      uploadTask.cancel();
+      reject(new Error("Upload timed out after 15 seconds"));
+    }, 15000)
+  );
+
+  return Promise.race([uploadPromise, timeoutPromise]);
 }
 
 export function watchMenuItems(onChanged: (items: FirebaseMenuItem[]) => void) {

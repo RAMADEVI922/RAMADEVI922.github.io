@@ -88,13 +88,8 @@ export default function MenuManagement() {
         setForm((prev) => ({ ...prev, image: imageUrl ?? '' }));
       } catch (error) {
         console.warn('Failed to upload image to Firebase Storage:', error);
-        toast.error('Upload failed; using local preview instead');
-        try {
-          imageUrl = await fileToUrl(selectedFile);
-          setForm((prev) => ({ ...prev, image: imageUrl }));
-        } catch {
-          // ignore
-        }
+        toast.error('Image upload failed; saving item without image');
+        imageUrl = undefined;
       }
     }
 

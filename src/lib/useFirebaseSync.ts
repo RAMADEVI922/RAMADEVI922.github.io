@@ -11,8 +11,15 @@ export function useFirebaseSync() {
     const init = async () => {
       try {
         const items = await fetchMenuItems();
-        setMenuItems(items);
-        unsubscribe = watchMenuItems(setMenuItems);
+        if (items.length > 0) {
+          setMenuItems(items);
+        }
+        
+        unsubscribe = watchMenuItems((newItems) => {
+          if (newItems.length > 0) {
+            setMenuItems(newItems);
+          }
+        });
       } catch (error) {
         // eslint-disable-next-line no-console
         console.warn("Firebase sync failed:", error);
