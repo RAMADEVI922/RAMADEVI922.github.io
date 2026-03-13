@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Plus, Trash2, Edit, X, UploadCloud, Search, DollarSign, Image as ImageIcon, Flame, ImagePlus } from 'lucide-react';
 import { toast } from 'sonner';
-import { uploadMenuItemImage } from '@/lib/firebaseService';
+import { uploadMenuItemImage, uploadCategoryImage, saveCategoryBanner, deleteCategoryBanner } from '@/lib/firebaseService';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export default function MenuManagement() {
@@ -128,15 +128,38 @@ export default function MenuManagement() {
     }
   };
 
-  const handleCategoryImageUpload = (category: string, file: File | null) => {
+  const handleCategoryImageUpload = async (category: string, file: File | null) => {
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
-      setCategoryImage(category, dataUrl);
+    
+    setIsSaving(true);
+    setUploadProgress(0);
+    
+    try {
+      const imageUrl = await uploadCategoryImage(file, category, (progress) => {
+        setUploadProgress(progress);
+      });
+      
+      await saveCategoryBanner(category, imageUrl);
+      setCategoryImage(category, imageUrl);
       toast.success(`Banner uploaded for ${category}`);
-    };
-    reader.readAsDataURL(file);
+    } catch (error) {
+      console.error('Failed to upload category banner:', error);
+      toast.error('Failed to upload cover image');
+    } finally {
+      setIsSaving(false);
+      setUploadProgress(null);
+    }
+  };
+
+  const handleClearCategoryBanner = async (category: string) => {
+    try {
+      await deleteCategoryBanner(category);
+      clearCategoryImage(category);
+      toast.success(`Banner removed for ${category}`);
+    } catch (error) {
+      console.error('Failed to delete category banner:', error);
+      toast.error('Failed to remove cover image');
+    }
   };
 
   return (
@@ -308,7 +331,7 @@ export default function MenuManagement() {
                 Change Cover
               </Button>
               {categoryImages[activeCategory] && (
-                <Button onClick={() => clearCategoryImage(activeCategory)} variant="destructive" size="icon" className="rounded-full">
+                <Button onClick={() => handleClearCategoryBanner(activeCategory)} variant="destructive" size="icon" className="rounded-full">
                   <Trash2 className="w-4 h-4" />
                 </Button>
               )}

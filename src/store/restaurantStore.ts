@@ -43,7 +43,7 @@ export interface Waiter {
 export interface Notification {
   id: string;
   tableId: string;
-  type: 'order' | 'call_waiter' | 'request_bill';
+  type: 'order' | 'call_waiter' | 'request_bill' | 'extra_order';
   message: string;
   read: boolean;
   createdAt: Date;
@@ -97,6 +97,7 @@ interface RestaurantStore {
   // Category images (for customer menu section thumbnails)
   categoryImages: Record<string, string>;
   setCategoryImage: (category: string, image: string) => void;
+  setCategoryBanners: (banners: Record<string, string>) => void;
   clearCategoryImage: (category: string) => void;
 
   // Cart
@@ -110,6 +111,7 @@ interface RestaurantStore {
   // Orders
   orders: Order[];
   placeOrder: (tableId: string) => void;
+  addItemsToOrder: (tableId: string, items: CartItem[]) => void;
   updateOrderStatus: (id: string, status: Order['status']) => void;
 
   // Tables
@@ -154,6 +156,7 @@ export const useRestaurantStore = create<RestaurantStore>()(
       setCategoryImage: (category, image) => set((state) => ({
         categoryImages: { ...state.categoryImages, [category]: image },
       })),
+      setCategoryBanners: (banners) => set({ categoryImages: banners }),
       clearCategoryImage: (category) => set((state) => {
         const next = { ...state.categoryImages };
         delete next[category];

@@ -90,3 +90,70 @@ export function watchMenuItems(onChanged: (items: FirebaseMenuItem[]) => void) {
   });
   return unsubscribe;
 }
+
+export async function saveCategoryBanner(category: string, url: string): Promise<void> {
+  const docRef = doc(photosCollection, "category_banners");
+  await setDoc(docRef, { [category]: url }, { merge: true });
+}
+
+export async function fetchCategoryBanners(): Promise<Record<string, string>> {
+  const docRef = doc(photosCollection, "category_banners");
+  const snapshot = await getDoc(docRef);
+  return (snapshot.data() as Record<string, string>) || {};
+}
+
+export function watchCategoryBanners(onChanged: (banners: Record<string, string>) => void) {
+  const docRef = doc(photosCollection, "category_banners");
+  const unsubscribe = onSnapshot(docRef, (doc) => {
+    const data = (doc.data() as Record<string, string>) || {};
+    onChanged(data);
+  });
+  return unsubscribe;
+}
+
+export async function uploadCategoryImage(
+  file: File,
+  category: string,
+  onProgress?: (progress: number) => void
+): Promise<string> {
+  const storageRef = ref(storage, `categoryBanners/${category}_${Date.now()}`);
+  const uploadTask = uploadBytesResumable(storageRef, file);
+
+  const uploadPromise = new Promise<string>((resolve, reject) => {
+    uploadTask.on(
+      "state_changed",
+      (snapshot) => {
+        const progress = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
+        onProgress?.(progress);
+      },
+      (error) => reject(error),
+      async () => {
+        try {
+          const url = await getDownloadURL(uploadTask.snapshot.ref);
+          resolve(url);
+        } catch (e) {
+          reject(e);
+        }
+      }
+    );
+  });
+
+  const timeoutPromise = new Promise<string>((_, reject) =>
+    setTimeout(() => {
+      uploadTask.cancel();
+      reject(new Error("Upload timed out after 15 seconds"));
+    }, 15000)
+  );
+
+  return Promise.race([uploadPromise, timeoutPromise]);
+}
+
+export async function deleteCategoryBanner(category: string): Promise<void> {
+  const docRef = doc(photosCollection, "category_banners");
+  const snapshot = await getDoc(docRef);
+  if (snapshot.exists()) {
+    const data = snapshot.data();
+    delete data[category];
+    await setDoc(docRef, data);
+  }
+}
