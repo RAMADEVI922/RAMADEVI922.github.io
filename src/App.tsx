@@ -11,15 +11,19 @@ import AdminLogin from "./pages/AdminLogin.tsx";
 import AdminSignUp from "./pages/AdminSignUp.tsx";
 import WaiterPanel from "./pages/WaiterPanel.tsx";
 import ProtectedRoute from "./components/ProtectedRoute.tsx";
+import { useFirebaseSync } from "./lib/useFirebaseSync";
 
 const queryClient = new QueryClient();
 
-const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <Toaster />
-      <Sonner />
-      <Routes>
+const App = () => {
+  useFirebaseSync();
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider>
+        <Toaster />
+        <Sonner />
+        <Routes>
         <Route path="/" element={<Index />} />
         <Route path="/menu/:tableId" element={<CustomerMenu />} />
         <Route path="/admin-login" element={<AdminLogin />} />
@@ -37,6 +41,7 @@ const App = () => (
       </Routes>
     </TooltipProvider>
   </QueryClientProvider>
-);
+  );
+};
 
 export default App;

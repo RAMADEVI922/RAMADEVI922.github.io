@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { upsertMenuItem, deleteMenuItem as deleteMenuItemFromDb } from "@/lib/firebaseService";
 
 export interface MenuItem {
   id: string;
@@ -88,9 +89,10 @@ const sampleWaiters: Waiter[] = [
 interface RestaurantStore {
   // Menu
   menuItems: MenuItem[];
-  addMenuItem: (item: Omit<MenuItem, 'id'>) => void;
-  updateMenuItem: (id: string, item: Partial<MenuItem>) => void;
-  deleteMenuItem: (id: string) => void;
+  setMenuItems: (items: MenuItem[]) => void;
+  addMenuItem: (item: MenuItem) => Promise<void>;
+  updateMenuItem: (id: string, item: Partial<MenuItem>) => Promise<void>;
+  deleteMenuItem: (id: string) => Promise<void>;
 
   // Category images (for customer menu section thumbnails)
   categoryImages: Record<string, string>;
@@ -137,9 +139,16 @@ export const useRestaurantStore = create<RestaurantStore>()(
     (set, get) => ({
       menuItems: sampleMenu,
       categoryImages: {},
-      addMenuItem: (item) => set((state) => ({
-        menuItems: [...state.menuItems, { ...item, id: `M${Date.now()}` }],
-      })),
+      setMenuItems: (items) => set({ menuItems: items }),
+      addMenuItem: async (item) => {
+        set((state) => ({ menuItems: [...state.menuItems, item] }));
+        try {
+          await upsertMenuItem(item);
+        } catch (error) {
+          // eslint-disable-next-line no-console
+          console.warn("Failed to sync menu item to Firestore:", error);
+        }
+      },
       setCategoryImage: (category, image) => set((state) => ({
         categoryImages: { ...state.categoryImages, [category]: image },
       })),
@@ -148,12 +157,33 @@ export const useRestaurantStore = create<RestaurantStore>()(
         delete next[category];
         return { categoryImages: next };
       }),
-  updateMenuItem: (id, updates) => set((state) => ({
-    menuItems: state.menuItems.map((item) => item.id === id ? { ...item, ...updates } : item),
-  })),
-  deleteMenuItem: (id) => set((state) => ({
-    menuItems: state.menuItems.filter((item) => item.id !== id),
-  })),
+  updateMenuItem: async (id, updates) => {
+    set((state) => ({
+      menuItems: state.menuItems.map((item) => item.id === id ? { ...item, ...updates } : item),
+    }));
+
+    try {
+      const current = get().menuItems.find((item) => item.id === id);
+      if (current) {
+        await upsertMenuItem({ ...current, ...updates });
+      }
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.warn("Failed to sync menu item update to Firestore:", error);
+    }
+  },
+  deleteMenuItem: async (id) => {
+    set((state) => ({
+      menuItems: state.menuItems.filter((item) => item.id !== id),
+    }));
+
+    try {
+      await deleteMenuItemFromDb(id);
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.warn("Failed to delete menu item from Firestore:", error);
+    }
+  },
 
   cart: [],
   addToCart: (item) => set((state) => {
@@ -272,9 +302,19 @@ export const useRestaurantStore = create<RestaurantStore>()(
   setCurrentTableId: (id) => set({ currentTableId: id }),
 }),
 {
-  name: 'qr-menu-store',
+  name: 'qr-menu-store-v2',
   // Keep data small; large images might exceed localStorage limits.
-  // If you want to clear storage during development, run `localStorage.removeItem('qr-menu-store')`.
+  // Persist only lightweight UI state; menu items are loaded from Firestore.
+  partialize: (state) => ({
+    cart: state.cart,
+    tables: state.tables,
+    waiters: state.waiters,
+    notifications: state.notifications,
+    currentTableId: state.currentTableId,
+    categoryImages: state.categoryImages,
+  }),
+  // If you want to clear cached state during development:
+  // localStorage.removeItem('qr-menu-store');
 }
 )
 );

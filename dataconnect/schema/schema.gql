@@ -1,0 +1,42 @@
+type Restaurant @table {
+  name: String!
+  address: String!
+  createdAt: Timestamp!
+  phoneNumber: String
+  email: String
+  website: String
+}
+
+type MenuCategory @table {
+  name: String!
+  createdAt: Timestamp!
+  description: String
+  displayOrder: Int
+  restaurant: Restaurant
+}
+
+type MenuItem @table {
+  name: String!
+  price: Float!
+  createdAt: Timestamp!
+  description: String
+  imageUrl: String
+  dietaryInfo: [String]
+  menuCategory: MenuCategory
+  restaurant: Restaurant
+}
+
+type Table @table {
+  tableNumber: Int!
+  capacity: Int!
+  createdAt: Timestamp!
+  status: String
+  restaurant: Restaurant
+}
+
+type QRCode @table {
+  qrCodeUrl: String!
+  createdAt: Timestamp!
+  description: String
+  restaurant: Restaurant
+}

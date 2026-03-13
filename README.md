@@ -53,7 +53,29 @@ Create a `.env.local` file in the root directory:
 
 ```env
 VITE_CLERK_PUBLISHABLE_KEY=pk_test_bWludC13b21iYXQtNTIuY2xlcmsuYWNjb3VudHMuZGV2JA
+
+# Firebase configuration (replace with your own values)
+VITE_FIREBASE_API_KEY=
+VITE_FIREBASE_AUTH_DOMAIN=
+VITE_FIREBASE_PROJECT_ID=
+VITE_FIREBASE_STORAGE_BUCKET=
+VITE_FIREBASE_MESSAGING_SENDER_ID=
+VITE_FIREBASE_APP_ID=
+VITE_FIREBASE_MEASUREMENT_ID=
 ```
+
+### 4. Firebase Setup (optional)
+
+1. Create a project at https://console.firebase.google.com/
+2. In Project Settings → Your apps, register a web app and copy the config values.
+3. Paste those values into your `.env.local` file.
+
+You can now import Firebase helpers from `src/lib/firebase.ts`:
+
+```ts
+import { auth, db } from "./lib/firebase";
+```
+
 
 ### 4. Run Development Server
 
