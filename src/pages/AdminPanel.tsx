@@ -24,7 +24,12 @@ function Sidebar({ activeTab, setActiveTab }: { activeTab: AdminTab; setActiveTa
   const { signOut } = useClerk();
 
   const handleLogout = async () => {
-    await signOut();
+    try {
+      await signOut({ redirectUrl: '/QRMENU/' });
+    } catch (error) {
+      console.error('Logout error:', error);
+      toast.error('Logout failed');
+    }
   };
 
   return (
