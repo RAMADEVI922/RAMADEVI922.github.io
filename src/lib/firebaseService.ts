@@ -1,4 +1,4 @@
-import { collection, doc, setDoc, deleteDoc, getDocs, onSnapshot, query, orderBy } from "firebase/firestore";
+import { collection, doc, setDoc, deleteDoc, getDocs, onSnapshot, query, orderBy, getDoc } from "firebase/firestore";
 import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { db, storage } from "./firebase";
 
@@ -13,7 +13,13 @@ export interface FirebaseMenuItem {
   image?: string;
 }
 
+export interface Photo {
+  id: string;
+  url: string;
+}
+
 const menuItemsCollection = collection(db, "menuItems");
+const photosCollection = collection(db, "photos");
 
 export async function fetchMenuItems(): Promise<FirebaseMenuItem[]> {
   const q = query(menuItemsCollection, orderBy("name"));
