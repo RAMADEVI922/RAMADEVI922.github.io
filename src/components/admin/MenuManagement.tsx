@@ -13,7 +13,6 @@ export default function MenuManagement() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({ name: '', description: '', price: '', category: '', dietary: '', image: '' });
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState<string>('All');
@@ -73,7 +72,6 @@ export default function MenuManagement() {
     }
 
     setIsSaving(true);
-    setUploadProgress(null);
 
     const itemId = editingId ?? `M${Date.now()}`;
     const dietary = form.dietary ? form.dietary.split(',').map((d) => d.trim()) : undefined;
@@ -83,7 +81,6 @@ export default function MenuManagement() {
     if (selectedFile) {
       try {
         imageUrl = await uploadMenuItemImage(selectedFile, itemId, (progress: number) => {
-          setUploadProgress(progress);
         });
         setForm((prev) => ({ ...prev, image: imageUrl ?? '' }));
       } catch (error) {
@@ -124,7 +121,6 @@ export default function MenuManagement() {
       console.error(error);
     } finally {
       setIsSaving(false);
-      setUploadProgress(null);
     }
   };
 
@@ -132,11 +128,9 @@ export default function MenuManagement() {
     if (!file) return;
     
     setIsSaving(true);
-    setUploadProgress(0);
     
     try {
       const imageUrl = await uploadCategoryImage(file, category, (progress) => {
-        setUploadProgress(progress);
       });
       
       await saveCategoryBanner(category, imageUrl);
@@ -147,7 +141,6 @@ export default function MenuManagement() {
       toast.error('Failed to upload cover image');
     } finally {
       setIsSaving(false);
-      setUploadProgress(null);
     }
   };
 
@@ -510,22 +503,6 @@ export default function MenuManagement() {
                       </div>
                     </div>
                     
-                    {/* Upload Progress */}
-                    {uploadProgress !== null && (
-                      <div className="space-y-1.5 mt-2">
-                        <div className="flex justify-between text-xs font-semibold text-muted-foreground">
-                          <span>Uploading...</span>
-                          <span>{Math.round(uploadProgress)}%</span>
-                        </div>
-                        <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
-                          <motion.div 
-                            initial={{ width: 0 }}
-                            animate={{ width: `${uploadProgress}%` }}
-                            className="h-full bg-primary" 
-                          />
-                        </div>
-                      </div>
-                    )}
                   </div>
                 </form>
               </div>
@@ -564,3 +541,4 @@ export default function MenuManagement() {
     </div>
   );
 }
+

@@ -27,16 +27,23 @@ export function useFirebaseSync() {
 
     const init = async () => {
       try {
-        // Load menu items
+        // Load menu items - merge Firestore items with local sample items
         const items = await fetchMenuItems();
         if (items.length > 0) {
-          setMenuItems(items);
+          const store = useRestaurantStore.getState();
+          const localItems = store.menuItems;
+          const firestoreIds = new Set(items.map((i: { id: string }) => i.id));
+          const localOnly = localItems.filter(i => !firestoreIds.has(i.id));
+          setMenuItems([...localOnly, ...items]);
         }
         
         unsubscribeMenu = watchMenuItems((newItems) => {
-          if (newItems.length > 0) {
-            setMenuItems(newItems);
-          }
+          // Merge: keep local items not in Firestore, add/update Firestore items
+          const store = useRestaurantStore.getState();
+          const localItems = store.menuItems;
+          const firestoreIds = new Set(newItems.map(i => i.id));
+          const localOnly = localItems.filter(i => !firestoreIds.has(i.id));
+          setMenuItems([...localOnly, ...newItems]);
         });
 
         // Load category banners

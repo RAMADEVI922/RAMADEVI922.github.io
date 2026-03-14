@@ -5,7 +5,7 @@ import path from "path";
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
-  base: "/QRMENU/",
+  base: mode === 'production' ? '/' : '/QRMENU/',
   server: {
     host: "::",
     port: 5173,

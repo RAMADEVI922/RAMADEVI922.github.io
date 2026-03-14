@@ -263,7 +263,7 @@ export default function CustomerMenu() {
                   onClick={() => setSelectedCategory(category)}
                   className="overflow-hidden rounded-xl border border-border bg-card p-0 text-left shadow-sm hover:shadow-md transition"
                 >
-                  <div className="h-28 w-full overflow-hidden bg-muted/20">
+                  <div className="h-48 w-full overflow-hidden bg-muted/20">
                     {thumbnail ? (
                       <img
                         src={thumbnail}

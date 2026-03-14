@@ -2,6 +2,26 @@ import { collection, doc, setDoc, deleteDoc, getDocs, onSnapshot, query, orderBy
 import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { db, storage, isFirebaseConfigured } from "./firebase";
 
+// Compress and resize image to base64 — keeps it under Firestore's 1MB doc limit
+function compressImageToBase64(file: File, maxWidth = 800, quality = 0.7): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const scale = Math.min(1, maxWidth / img.width);
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width * scale;
+      canvas.height = img.height * scale;
+      const ctx = canvas.getContext('2d')!;
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL('image/jpeg', quality));
+    };
+    img.onerror = reject;
+    img.src = url;
+  });
+}
+
 export interface FirebaseMenuItem {
   id: string;
   name: string;
@@ -53,8 +73,13 @@ export async function upsertMenuItem(item: FirebaseMenuItem): Promise<void> {
   }
 
   try {
+    // Strip base64 images before saving to Firestore — too large for 1MB limit
+    const itemToSave = { ...item };
+    if (itemToSave.image?.startsWith('data:')) {
+      delete itemToSave.image;
+    }
     const docRef = doc(menuItemsCollection, item.id);
-    await setDoc(docRef, { ...item });
+    await setDoc(docRef, itemToSave);
   } catch (error) {
     console.warn('Failed to upsert menu item:', error);
   }
@@ -80,9 +105,15 @@ export async function uploadMenuItemImage(
   itemId: string,
   onProgress?: (progress: number) => void
 ): Promise<string> {
+  // Helper to convert file to base64 as fallback
+  const toBase64 = () => compressImageToBase64(file);
+
+  // If Firebase Storage is not configured, use base64
   if (!isFirebaseConfigured || !storage) {
-    console.warn('Firebase not configured. Image not uploaded.');
-    return '';
+    console.warn('Firebase Storage not configured. Converting image to base64.');
+    const b64 = await toBase64();
+    onProgress?.(100);
+    return b64;
   }
 
   try {
@@ -108,7 +139,6 @@ export async function uploadMenuItemImage(
       );
     });
 
-    // Adding a 15-second timeout to prevent the UI from hanging indefinitely
     const timeoutPromise = new Promise<string>((_, reject) =>
       setTimeout(() => {
         uploadTask.cancel();
@@ -116,10 +146,11 @@ export async function uploadMenuItemImage(
       }, 15000)
     );
 
-    return Promise.race([uploadPromise, timeoutPromise]);
+    return await Promise.race([uploadPromise, timeoutPromise]);
   } catch (error) {
-    console.warn('Failed to upload image:', error);
-    return '';
+    // Storage not enabled or failed — fall back to base64
+    console.warn('Firebase Storage upload failed, falling back to base64:', error);
+    const b64 = await compressImageToBase64(file); onProgress?.(100); return b64;
   }
 }
 
@@ -147,6 +178,13 @@ export function watchMenuItems(onChanged: (items: FirebaseMenuItem[]) => void) {
 }
 
 export async function saveCategoryBanner(category: string, url: string): Promise<void> {
+  // Skip Firestore for base64 images — they exceed the 1MB document limit.
+  // The URL is already persisted in Zustand localStorage via categoryImages.
+  if (url.startsWith('data:')) {
+    console.warn('Skipping Firestore save for base64 image — stored locally only.');
+    return;
+  }
+
   const photosCollection = getPhotosCollection();
   if (!photosCollection) {
     console.warn('Firebase not configured. Category banner not saved.');
@@ -186,36 +224,50 @@ export async function uploadCategoryImage(
   category: string,
   onProgress?: (progress: number) => void
 ): Promise<string> {
-  const storageRef = ref(storage, `categoryBanners/${category}_${Date.now()}`);
-  const uploadTask = uploadBytesResumable(storageRef, file);
+  // If Firebase Storage is not configured, use compressed base64
+  if (!isFirebaseConfigured || !storage) {
+    console.warn('Firebase Storage not configured. Converting image to base64.');
+    const b64 = await compressImageToBase64(file);
+    onProgress?.(100);
+    return b64;
+  }
 
-  const uploadPromise = new Promise<string>((resolve, reject) => {
-    uploadTask.on(
-      "state_changed",
-      (snapshot) => {
-        const progress = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
-        onProgress?.(progress);
-      },
-      (error) => reject(error),
-      async () => {
-        try {
-          const url = await getDownloadURL(uploadTask.snapshot.ref);
-          resolve(url);
-        } catch (e) {
-          reject(e);
+  try {
+    const storageRef = ref(storage, `categoryBanners/${category}_${Date.now()}`);
+    const uploadTask = uploadBytesResumable(storageRef, file);
+
+    const uploadPromise = new Promise<string>((resolve, reject) => {
+      uploadTask.on(
+        "state_changed",
+        (snapshot) => {
+          const progress = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
+          onProgress?.(progress);
+        },
+        (error) => reject(error),
+        async () => {
+          try {
+            const url = await getDownloadURL(uploadTask.snapshot.ref);
+            resolve(url);
+          } catch (e) {
+            reject(e);
+          }
         }
-      }
+      );
+    });
+
+    const timeoutPromise = new Promise<string>((_, reject) =>
+      setTimeout(() => {
+        uploadTask.cancel();
+        reject(new Error("Upload timed out after 15 seconds"));
+      }, 15000)
     );
-  });
 
-  const timeoutPromise = new Promise<string>((_, reject) =>
-    setTimeout(() => {
-      uploadTask.cancel();
-      reject(new Error("Upload timed out after 15 seconds"));
-    }, 15000)
-  );
-
-  return Promise.race([uploadPromise, timeoutPromise]);
+    return await Promise.race([uploadPromise, timeoutPromise]);
+  } catch (error) {
+    // Storage not enabled or failed — fall back to base64
+    console.warn('Firebase Storage upload failed, falling back to base64:', error);
+    const b64 = await compressImageToBase64(file); onProgress?.(100); return b64;
+  }
 }
 
 export async function deleteCategoryBanner(category: string): Promise<void> {
@@ -393,3 +445,4 @@ export function watchNotifications(onChanged: (notifications: FirebaseNotificati
     return () => {};
   }
 }
+
