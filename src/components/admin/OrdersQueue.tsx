@@ -145,19 +145,6 @@ export default function OrdersQueue() {
   const [selectedFilter, setSelectedFilter] = useState<FilterType>('all');
   const [displayedOrders, setDisplayedOrders] = useState<Order[]>([]);
 
-  useEffect(() => {
-    // Subscribe to store changes
-    const unsubscribe = useRestaurantStore.subscribe(
-      (state) => state.orders,
-      (updatedOrders) => {
-        updateDisplayedOrders(updatedOrders);
-      }
-    );
-
-    updateDisplayedOrders(orders);
-    return unsubscribe;
-  }, []);
-
   const updateDisplayedOrders = (allOrders: Order[]) => {
     let filtered = allOrders;
 
@@ -176,6 +163,19 @@ export default function OrdersQueue() {
 
     setDisplayedOrders(filtered);
   };
+
+  useEffect(() => {
+    // Subscribe to store changes
+    const unsubscribe = useRestaurantStore.subscribe(
+      (state) => state.orders,
+      (updatedOrders) => {
+        updateDisplayedOrders(updatedOrders);
+      }
+    );
+
+    updateDisplayedOrders(orders);
+    return unsubscribe;
+  }, [selectedFilter]);
 
   const handleStatusChange = (orderId: string, newStatus: OrderStatus) => {
     updateOrderStatus(orderId, newStatus);
