@@ -244,17 +244,12 @@ export const useRestaurantStore = create<RestaurantStore>()(
   placeOrder: (tableId) => {
     const { cart, cartTotal, clearCart, addNotification, addItemsToOrder } = get();
     
-    console.log('📦 [Store] placeOrder called with tableId:', tableId);
-    console.log('📦 [Store] Current cart:', cart);
-    
     if (cart.length === 0) {
-      console.warn('📦 [Store] Cart is empty, returning');
       return;
     }
 
     const existingOrder = get().orders.find((o) => o.tableId === tableId && o.status !== 'served');
     if (existingOrder) {
-      console.log('📦 [Store] Existing order found, adding items to it:', existingOrder.id);
       addItemsToOrder(tableId, cart);
       addNotification({ tableId, type: 'extra_order', message: `Table ${tableId} added more items` });
       clearCart();
@@ -274,18 +269,13 @@ export const useRestaurantStore = create<RestaurantStore>()(
       readyAt,
     };
     
-    console.log('📦 [Store] Creating new order:', order);
-    
     set((state) => {
       const newOrders = [order, ...state.orders];
-      console.log('📦 [Store] Updated orders array:', newOrders);
       return { orders: newOrders };
     });
     
     addNotification({ tableId, type: 'order', message: `New order from Table ${tableId}` });
     clearCart();
-    
-    console.log('📦 [Store] Order placed successfully');
   },
   updateOrderStatus: (id, status) => set((state) => ({
     orders: state.orders.map((o) => o.id === id ? { ...o, status } : o),

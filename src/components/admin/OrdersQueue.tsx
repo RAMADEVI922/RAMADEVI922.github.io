@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useRestaurantStore } from '@/store/restaurantStore';
+import { useRestaurantStore, type Order } from '@/store/restaurantStore';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ChevronDown, Clock, Users } from 'lucide-react';
@@ -7,16 +7,6 @@ import { toast } from 'sonner';
 
 type OrderStatus = 'pending' | 'confirmed' | 'preparing' | 'served';
 type FilterType = 'all' | 'pending' | 'confirmed' | 'preparing' | 'served';
-
-interface Order {
-  id: string;
-  tableId: string;
-  items: Array<{ id: string; name: string; quantity: number; price: number }>;
-  status: OrderStatus;
-  total: number;
-  createdAt: Date;
-  readyAt: number;
-}
 
 function formatOrderTime(date: Date): string {
   return new Date(date).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
@@ -146,33 +136,22 @@ export default function OrdersQueue() {
   const [selectedFilter, setSelectedFilter] = useState<FilterType>('all');
   const [displayedOrders, setDisplayedOrders] = useState<Order[]>([]);
 
-  console.log('📊 [OrdersQueue] Component rendered, current orders:', orders);
-
-  const updateDisplayedOrders = (allOrders: Order[]) => {
-    console.log('📊 [OrdersQueue] updateDisplayedOrders called with:', allOrders);
-    
-    let filtered = allOrders;
+  // Update displayed orders whenever orders or filter changes
+  useEffect(() => {
+    let filtered = [...orders];
 
     // Filter by status
     if (selectedFilter !== 'all') {
       filtered = filtered.filter((o) => o.status === selectedFilter);
-    }
-
-    // Filter out served orders from main queue
-    if (selectedFilter === 'all') {
+    } else {
+      // Show all non-served orders
       filtered = filtered.filter((o) => o.status !== 'served');
     }
 
     // Sort by creation time (FIFO - oldest first)
     filtered.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
-    console.log('📊 [OrdersQueue] Filtered and sorted orders:', filtered);
     setDisplayedOrders(filtered);
-  };
-
-  useEffect(() => {
-    console.log('📊 [OrdersQueue] useEffect triggered, updating displayed orders');
-    updateDisplayedOrders(orders);
   }, [orders, selectedFilter]);
 
   const handleStatusChange = (orderId: string, newStatus: OrderStatus) => {
@@ -185,16 +164,6 @@ export default function OrdersQueue() {
 
   const handleFilterChange = (filter: FilterType) => {
     setSelectedFilter(filter);
-    let filtered = orders;
-
-    if (filter !== 'all') {
-      filtered = filtered.filter((o) => o.status === filter);
-    } else {
-      filtered = filtered.filter((o) => o.status !== 'served');
-    }
-
-    filtered.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-    setDisplayedOrders(filtered);
   };
 
   const completedOrders = orders.filter((o) => o.status === 'served').sort((a, b) => 
@@ -208,22 +177,9 @@ export default function OrdersQueue() {
         <p className="text-muted-foreground mt-1">Manage orders in FIFO order. Oldest orders appear first.</p>
       </div>
 
-      {/* Debug Info */}
-      <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg text-xs font-mono">
-        <p className="text-blue-900 mb-2">📊 Debug Info:</p>
-        <p className="text-blue-800">Total Orders in Store: <span className="font-bold">{orders.length}</span></p>
-        <p className="text-blue-800">Displayed Orders: <span className="font-bold">{displayedOrders.length}</span></p>
-        <p className="text-blue-800">Current Filter: <span className="font-bold">{selectedFilter}</span></p>
-        {orders.length > 0 && (
-          <p className="text-blue-800 mt-2">
-            Orders: {orders.map(o => `Table ${o.tableId} (${o.status})`).join(', ')}
-          </p>
-        )}
-      </div>
-
       {/* Filter Buttons */}
       <div className="flex gap-2 mb-6 flex-wrap">
-        {(['all', 'pending', 'confirmed', 'preparing', 'served'] as FilterType[]).map((filter) => (
+        {(['all', 'pending', 'served'] as FilterType[]).map((filter) => (
           <Button
             key={filter}
             variant={selectedFilter === filter ? 'default' : 'outline'}
