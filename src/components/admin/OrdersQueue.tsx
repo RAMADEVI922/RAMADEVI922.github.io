@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useRestaurantStore, type Order } from '@/store/restaurantStore';
+import { updateOrderStatus as syncOrderStatus } from '@/lib/firebaseService';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ChevronDown, Clock, Users } from 'lucide-react';
@@ -172,6 +173,12 @@ export default function OrdersQueue() {
 
   const handleStatusChange = (orderId: string, newStatus: OrderStatus) => {
     updateOrderStatus(orderId, newStatus);
+    
+    // Sync to Firebase
+    syncOrderStatus(orderId, newStatus).catch((error) => {
+      console.warn('Failed to sync order status to Firebase:', error);
+    });
+    
     const order = orders.find((o) => o.id === orderId);
     if (order) {
       toast.success(`Order ${orderId} marked as ${statusColors[newStatus].label}`);

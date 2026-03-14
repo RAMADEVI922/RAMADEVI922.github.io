@@ -110,6 +110,7 @@ interface RestaurantStore {
 
   // Orders
   orders: Order[];
+  setOrders: (orders: Order[]) => void;
   placeOrder: (tableId: string) => void;
   addItemsToOrder: (tableId: string, items: CartItem[]) => void;
   updateOrderStatus: (id: string, status: Order['status']) => void;
@@ -214,6 +215,7 @@ export const useRestaurantStore = create<RestaurantStore>()(
   cartTotal: () => get().cart.reduce((sum, item) => sum + item.price * item.quantity, 0),
 
   orders: [],
+  setOrders: (orders) => set({ orders }),
   addItemsToOrder: (tableId, items) => {
     set((state) => {
       const existing = state.orders.find((o) => o.tableId === tableId && o.status !== 'served');

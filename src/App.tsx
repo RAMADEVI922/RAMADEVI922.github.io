@@ -14,11 +14,13 @@ import WaiterPanel from "./pages/WaiterPanel.tsx";
 import OrderSummaryPage from "./pages/OrderSummaryPage.tsx";
 import ProtectedRoute from "./components/ProtectedRoute.tsx";
 import { useFirebaseSync } from "./lib/useFirebaseSync";
+import { useOrdersSync } from "./lib/useOrdersSync";
 
 const queryClient = new QueryClient();
 
 const App = () => {
   useFirebaseSync();
+  useOrdersSync();
 
   return (
     <QueryClientProvider client={queryClient}>

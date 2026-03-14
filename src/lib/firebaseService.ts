@@ -132,3 +132,106 @@ export function watchMenuItems(onChanged: (items: FirebaseMenuItem[]) => void) {
     return () => {};
   }
 }
+
+
+// ============ ORDERS FUNCTIONS ============
+
+export interface FirebaseOrder {
+  id: string;
+  tableId: string;
+  items: Array<{
+    id: string;
+    name: string;
+    description: string;
+    price: number;
+    category: string;
+    available: boolean;
+    dietary?: string[];
+    image?: string;
+    quantity: number;
+  }>;
+  status: 'pending' | 'confirmed' | 'preparing' | 'served';
+  total: number;
+  createdAt: string; // ISO string
+  readyAt: number;
+  paymentMethod?: 'cash' | 'online';
+}
+
+const ordersCollection = db ? collection(db, "orders") : null;
+
+export async function saveOrder(order: FirebaseOrder): Promise<void> {
+  if (!isFirebaseConfigured || !ordersCollection) {
+    console.warn('Firebase not configured. Order not saved.');
+    return;
+  }
+
+  try {
+    const docRef = doc(ordersCollection, order.id);
+    await setDoc(docRef, {
+      ...order,
+      createdAt: order.createdAt, // Already ISO string
+      updatedAt: new Date().toISOString(),
+    });
+    console.log('✅ Order saved to Firebase:', order.id);
+  } catch (error) {
+    console.warn('Failed to save order to Firebase:', error);
+  }
+}
+
+export async function updateOrderStatus(orderId: string, status: string): Promise<void> {
+  if (!isFirebaseConfigured || !ordersCollection) {
+    console.warn('Firebase not configured. Order status not updated.');
+    return;
+  }
+
+  try {
+    const docRef = doc(ordersCollection, orderId);
+    await setDoc(docRef, { status, updatedAt: new Date().toISOString() }, { merge: true });
+    console.log('✅ Order status updated in Firebase:', orderId, status);
+  } catch (error) {
+    console.warn('Failed to update order status:', error);
+  }
+}
+
+export async function fetchOrders(): Promise<FirebaseOrder[]> {
+  if (!isFirebaseConfigured || !ordersCollection) {
+    console.warn('Firebase not configured. Returning empty orders.');
+    return [];
+  }
+
+  try {
+    const q = query(ordersCollection, orderBy("createdAt", "desc"));
+    const snapshot = await getDocs(q);
+
+    return snapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...(doc.data() as Omit<FirebaseOrder, "id">),
+    }));
+  } catch (error) {
+    console.warn('Failed to fetch orders from Firebase:', error);
+    return [];
+  }
+}
+
+export function watchOrders(onChanged: (orders: FirebaseOrder[]) => void): () => void {
+  if (!isFirebaseConfigured || !ordersCollection) {
+    console.warn('Firebase not configured. Orders will not be watched.');
+    return () => {};
+  }
+
+  try {
+    const q = query(ordersCollection, orderBy("createdAt", "desc"));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const orders = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...(doc.data() as Omit<FirebaseOrder, "id">),
+      }));
+      console.log('📊 Firebase orders updated:', orders.length, 'orders');
+      onChanged(orders);
+    });
+    return unsubscribe;
+  } catch (error) {
+    console.warn('Failed to watch orders:', error);
+    return () => {};
+  }
+}
