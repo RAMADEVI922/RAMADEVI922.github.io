@@ -265,7 +265,10 @@ export const useRestaurantStore = create<RestaurantStore>()(
   },
   placeOrder: (tableId) => {
     const { cart, cartTotal, clearCart, addNotification, addItemsToOrder } = get();
-    if (cart.length === 0) return;
+    
+    if (cart.length === 0) {
+      return;
+    }
 
     const existingOrder = get().orders.find((o) => o.tableId === tableId && o.status !== 'served');
     if (existingOrder) {
@@ -395,6 +398,7 @@ export const useRestaurantStore = create<RestaurantStore>()(
     notifications: state.notifications,
     currentTableId: state.currentTableId,
     categoryImages: state.categoryImages,
+    orders: state.orders, // Persist orders so they appear across tabs/windows
   }),
   // If you want to clear cached state during development:
   // localStorage.removeItem('qr-menu-store');
