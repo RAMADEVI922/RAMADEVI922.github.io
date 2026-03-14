@@ -11,7 +11,7 @@ createRoot(document.getElementById("root")!).render(
   <BrowserRouter basename={basename}>
     <ClerkProvider
       publishableKey={import.meta.env.VITE_CLERK_PUBLISHABLE_KEY}
-      afterSignOutUrl="/"
+      afterSignOutUrl="/QRMENU/"
     >
       <App />
     </ClerkProvider>

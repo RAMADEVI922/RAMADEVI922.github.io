@@ -1,12 +1,12 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { 
-  upsertMenuItem, 
+import {
+  upsertMenuItem,
   deleteMenuItem as deleteMenuItemFromDb,
   upsertOrder,
   upsertNotification,
   type FirebaseOrder,
-  type FirebaseNotification
+  type FirebaseNotification,
 } from "@/lib/firebaseService";
 
 export interface MenuItem {
@@ -31,7 +31,8 @@ export interface Order {
   status: 'pending' | 'confirmed' | 'preparing' | 'served';
   total: number;
   createdAt: Date;
-  readyAt: number; // timestamp when order is estimated to be ready
+  readyAt: number;
+  paymentMethod?: 'cash' | 'online';
 }
 
 export interface Table {
@@ -56,7 +57,6 @@ export interface Notification {
   createdAt: Date;
 }
 
-// Sample menu data
 const sampleMenu: MenuItem[] = [
   { id: '1', name: 'Bruschetta', description: 'Grilled bread topped with fresh tomatoes, garlic, and basil', price: 320, category: 'Appetizers', available: true, dietary: ['V'] },
   { id: '2', name: 'Chicken Wings', description: 'Crispy fried wings tossed in spicy buffalo sauce', price: 450, category: 'Appetizers', available: true },
@@ -94,20 +94,17 @@ const sampleWaiters: Waiter[] = [
 ];
 
 interface RestaurantStore {
-  // Menu
   menuItems: MenuItem[];
   setMenuItems: (items: MenuItem[]) => void;
   addMenuItem: (item: MenuItem) => Promise<void>;
   updateMenuItem: (id: string, item: Partial<MenuItem>) => Promise<void>;
   deleteMenuItem: (id: string) => Promise<void>;
 
-  // Category images (for customer menu section thumbnails)
   categoryImages: Record<string, string>;
   setCategoryImage: (category: string, image: string) => void;
   setCategoryBanners: (banners: Record<string, string>) => void;
   clearCategoryImage: (category: string) => void;
 
-  // Cart
   cart: CartItem[];
   addToCart: (item: MenuItem) => void;
   removeFromCart: (id: string) => void;
@@ -115,32 +112,30 @@ interface RestaurantStore {
   clearCart: () => void;
   cartTotal: () => number;
 
-  // Orders
   orders: Order[];
   setOrders: (orders: Order[]) => void;
   placeOrder: (tableId: string) => void;
   addItemsToOrder: (tableId: string, items: CartItem[]) => void;
   updateOrderStatus: (id: string, status: Order['status']) => void;
+  getOrderByTableId: (tableId: string) => Order | undefined;
+  getActiveOrderForTable: (tableId: string) => Order | undefined;
+  updateOrderPaymentMethod: (orderId: string, method: 'cash' | 'online') => void;
 
-  // Tables
   tables: Table[];
   addTable: (number: number) => void;
   deleteTable: (id: string) => void;
 
-  // Waiters
   waiters: Waiter[];
   addWaiter: (waiter: Omit<Waiter, 'id'>) => void;
   deleteWaiter: (id: string) => void;
   toggleWaiterStatus: (id: string) => void;
 
-  // Notifications
   notifications: Notification[];
   setNotifications: (notifications: Notification[]) => void;
   addNotification: (notification: Omit<Notification, 'id' | 'createdAt' | 'read'>) => void;
   markNotificationRead: (id: string) => void;
   clearNotifications: () => void;
 
-  // Current table (for customer view)
   currentTableId: string | null;
   setCurrentTableId: (id: string) => void;
 }
@@ -153,255 +148,173 @@ export const useRestaurantStore = create<RestaurantStore>()(
       setMenuItems: (items) => set({ menuItems: items }),
       addMenuItem: async (item) => {
         set((state) => ({ menuItems: [...state.menuItems, item] }));
-        try {
-          upsertMenuItem(item).catch(error => {
-            console.warn("Failed to sync menu item to Firestore:", error);
-          });
-        } catch (error) {
-          // eslint-disable-next-line no-console
-          console.warn("Failed to sync menu item to Firestore:", error);
-        }
+        upsertMenuItem(item).catch((e) => console.warn("Failed to sync menu item:", e));
       },
       setCategoryImage: (category, image) => set((state) => ({
         categoryImages: { ...state.categoryImages, [category]: image },
       })),
-      setCategoryBanners: (banners) => set({ categoryImages: banners }),
+      setCategoryBanners: (banners) => set((state) => ({
+        // Merge: keep existing base64 banners, overlay Firestore banners
+        categoryImages: { ...state.categoryImages, ...banners },
+      })),
       clearCategoryImage: (category) => set((state) => {
         const next = { ...state.categoryImages };
         delete next[category];
         return { categoryImages: next };
       }),
-  updateMenuItem: async (id, updates) => {
-    set((state) => ({
-      menuItems: state.menuItems.map((item) => item.id === id ? { ...item, ...updates } : item),
-    }));
-
-    try {
-      const current = get().menuItems.find((item) => item.id === id);
-      if (current) {
-        upsertMenuItem({ ...current, ...updates }).catch(error => {
-          console.warn("Failed to sync menu item update to Firestore:", error);
-        });
-      }
-    } catch (error) {
-      // eslint-disable-next-line no-console
-      console.warn("Failed to sync menu item update to Firestore:", error);
-    }
-  },
-  deleteMenuItem: async (id) => {
-    set((state) => ({
-      menuItems: state.menuItems.filter((item) => item.id !== id),
-    }));
-
-    try {
-      deleteMenuItemFromDb(id).catch(error => {
-        console.warn("Failed to delete menu item from Firestore:", error);
-      });
-    } catch (error) {
-      // eslint-disable-next-line no-console
-      console.warn("Failed to delete menu item from Firestore:", error);
-    }
-  },
-
-  cart: [],
-  addToCart: (item) => set((state) => {
-    const existing = state.cart.find((c) => c.id === item.id);
-    if (existing) {
-      return { cart: state.cart.map((c) => c.id === item.id ? { ...c, quantity: c.quantity + 1 } : c) };
-    }
-    return { cart: [...state.cart, { ...item, quantity: 1 }] };
-  }),
-  removeFromCart: (id) => set((state) => ({ cart: state.cart.filter((c) => c.id !== id) })),
-  updateCartQuantity: (id, quantity) => set((state) => ({
-    cart: quantity <= 0
-      ? state.cart.filter((c) => c.id !== id)
-      : state.cart.map((c) => c.id === id ? { ...c, quantity } : c),
-  })),
-  clearCart: () => set({ cart: [] }),
-  cartTotal: () => get().cart.reduce((sum, item) => sum + item.price * item.quantity, 0),
-
-  orders: [],
-  setOrders: (orders) => set({ orders }),
-  addItemsToOrder: (tableId, items) => {
-    set((state) => {
-      const existing = state.orders.find((o) => o.tableId === tableId && o.status !== 'served');
-      if (!existing) return state;
-
-      const updatedItems = [...existing.items];
-      let addedQty = 0;
-      items.forEach((item) => {
-        const found = updatedItems.find((i) => i.id === item.id);
-        if (found) {
-          found.quantity += item.quantity;
-        } else {
-          updatedItems.push(item);
+      updateMenuItem: async (id, updates) => {
+        set((state) => ({
+          menuItems: state.menuItems.map((item) => item.id === id ? { ...item, ...updates } : item),
+        }));
+        const current = get().menuItems.find((item) => item.id === id);
+        if (current) {
+          upsertMenuItem({ ...current, ...updates }).catch((e) => console.warn("Failed to sync menu item update:", e));
         }
-        addedQty += item.quantity;
-      });
+      },
+      deleteMenuItem: async (id) => {
+        set((state) => ({ menuItems: state.menuItems.filter((item) => item.id !== id) }));
+        deleteMenuItemFromDb(id).catch((e) => console.warn("Failed to delete menu item:", e));
+      },
 
-      const addedMs = addedQty * 15 * 60 * 1000; // 15 minutes per item
-      const nextReadyAt = Math.max(existing.readyAt, Date.now()) + addedMs;
+      cart: [],
+      addToCart: (item) => set((state) => {
+        const existing = state.cart.find((c) => c.id === item.id);
+        if (existing) {
+          return { cart: state.cart.map((c) => c.id === item.id ? { ...c, quantity: c.quantity + 1 } : c) };
+        }
+        return { cart: [...state.cart, { ...item, quantity: 1 }] };
+      }),
+      removeFromCart: (id) => set((state) => ({ cart: state.cart.filter((c) => c.id !== id) })),
+      updateCartQuantity: (id, quantity) => set((state) => ({
+        cart: quantity <= 0
+          ? state.cart.filter((c) => c.id !== id)
+          : state.cart.map((c) => c.id === id ? { ...c, quantity } : c),
+      })),
+      clearCart: () => set({ cart: [] }),
+      cartTotal: () => get().cart.reduce((sum, item) => sum + item.price * item.quantity, 0),
 
-      const updatedOrder: Order = {
-        ...existing,
-        items: updatedItems,
-        total: updatedItems.reduce((sum, i) => sum + i.price * i.quantity, 0),
-        readyAt: nextReadyAt,
-      };
+      orders: [],
+      setOrders: (orders) => set({ orders }),
+      addItemsToOrder: (tableId, items) => {
+        set((state) => {
+          const existing = state.orders.find((o) => o.tableId === tableId && o.status !== 'served');
+          if (!existing) return state;
+          const updatedItems = [...existing.items];
+          let addedQty = 0;
+          items.forEach((item) => {
+            const found = updatedItems.find((i) => i.id === item.id);
+            if (found) { found.quantity += item.quantity; }
+            else { updatedItems.push(item); }
+            addedQty += item.quantity;
+          });
+          const nextReadyAt = Math.max(existing.readyAt, Date.now()) + addedQty * 15 * 60 * 1000;
+          const updatedOrder: Order = {
+            ...existing,
+            items: updatedItems,
+            total: updatedItems.reduce((sum, i) => sum + i.price * i.quantity, 0),
+            readyAt: nextReadyAt,
+          };
+          upsertOrder({ ...updatedOrder, createdAt: updatedOrder.createdAt.getTime() } as FirebaseOrder)
+            .catch((e) => console.warn("Failed to sync order:", e));
+          return { orders: state.orders.map((o) => (o.id === existing.id ? updatedOrder : o)) };
+        });
+      },
+      placeOrder: (tableId) => {
+        const { cart, cartTotal, clearCart, addNotification, addItemsToOrder } = get();
+        if (cart.length === 0) return;
+        const existingOrder = get().orders.find((o) => o.tableId === tableId && o.status !== 'served');
+        if (existingOrder) {
+          addItemsToOrder(tableId, cart);
+          addNotification({ tableId, type: 'extra_order', message: `Table ${tableId} added more items` });
+          clearCart();
+          return;
+        }
+        const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0);
+        const order: Order = {
+          id: `O${Date.now()}`,
+          tableId,
+          items: [...cart],
+          status: 'pending',
+          total: cartTotal(),
+          createdAt: new Date(),
+          readyAt: Date.now() + totalItems * 15 * 60 * 1000,
+        };
+        set((state) => ({ orders: [order, ...state.orders] }));
+        upsertOrder({ ...order, createdAt: order.createdAt.getTime() } as FirebaseOrder)
+          .catch((e) => console.warn("Failed to sync order:", e));
+        addNotification({ tableId, type: 'order', message: `New order from Table ${tableId}` });
+        clearCart();
+      },
+      updateOrderStatus: (id, status) => {
+        set((state) => ({ orders: state.orders.map((o) => o.id === id ? { ...o, status } : o) }));
+        const order = get().orders.find((o) => o.id === id);
+        if (order) {
+          upsertOrder({ ...order, createdAt: order.createdAt.getTime() } as FirebaseOrder)
+            .catch((e) => console.warn("Failed to sync order status:", e));
+        }
+      },
+      getOrderByTableId: (tableId) =>
+        get().orders.find((o) => o.tableId === tableId && o.status !== 'served'),
+      getActiveOrderForTable: (tableId) =>
+        get().orders.find((o) => o.tableId === tableId && ['pending', 'confirmed', 'preparing'].includes(o.status)),
+      updateOrderPaymentMethod: (orderId, method) =>
+        set((state) => ({ orders: state.orders.map((o) => o.id === orderId ? { ...o, paymentMethod: method } : o) })),
 
-      // Sync to Firebase
-      const firebaseOrder: FirebaseOrder = {
-        ...updatedOrder,
-        createdAt: updatedOrder.createdAt.getTime(),
-      };
-      upsertOrder(firebaseOrder).catch(error => {
-        console.warn("Failed to sync updated order to Firebase:", error);
-      });
+      tables: sampleTables,
+      addTable: (number) => set((state) => ({
+        tables: [...state.tables, { id: `T${Date.now()}`, number, status: 'available' }],
+      })),
+      deleteTable: (id) => set((state) => ({ tables: state.tables.filter((t) => t.id !== id) })),
 
-      return {
-        orders: state.orders.map((o) => (o.id === existing.id ? updatedOrder : o)),
-      };
-    });
-  },
-  placeOrder: (tableId) => {
-    const { cart, cartTotal, clearCart, addNotification, addItemsToOrder } = get();
-    
-    if (cart.length === 0) {
-      return;
+      waiters: sampleWaiters,
+      addWaiter: (waiter) => set((state) => ({
+        waiters: [...state.waiters, { ...waiter, id: `W${Date.now()}` }],
+      })),
+      deleteWaiter: (id) => set((state) => ({ waiters: state.waiters.filter((w) => w.id !== id) })),
+      toggleWaiterStatus: (id) => set((state) => ({
+        waiters: state.waiters.map((w) => w.id === id ? { ...w, active: !w.active } : w),
+      })),
+
+      notifications: [],
+      setNotifications: (notifications) => set({ notifications }),
+      addNotification: (notification) => {
+        const newNotif = { ...notification, id: `N${Date.now()}`, createdAt: new Date(), read: false };
+        set((state) => ({ notifications: [newNotif, ...state.notifications] }));
+        upsertNotification({ ...newNotif, createdAt: newNotif.createdAt.getTime() } as FirebaseNotification)
+          .catch((e) => console.warn("Failed to sync notification:", e));
+      },
+      markNotificationRead: (id) => {
+        set((state) => ({
+          notifications: state.notifications.map((n) => n.id === id ? { ...n, read: true } : n),
+        }));
+        const notif = get().notifications.find((n) => n.id === id);
+        if (notif) {
+          upsertNotification({ ...notif, read: true, createdAt: notif.createdAt.getTime() } as FirebaseNotification)
+            .catch((e) => console.warn("Failed to sync notification read:", e));
+        }
+      },
+      clearNotifications: () => set({ notifications: [] }),
+
+      currentTableId: null,
+      setCurrentTableId: (id) => set({ currentTableId: id }),
+    }),
+    {
+      name: 'qr-menu-store-v2',
+      partialize: (state) => ({
+        cart: state.cart,
+        tables: state.tables,
+        waiters: state.waiters,
+        notifications: state.notifications,
+        currentTableId: state.currentTableId,
+        categoryImages: state.categoryImages,
+        orders: state.orders,
+      }),
+      serialize: (state) => JSON.stringify(state, (_, value) =>
+        value instanceof Date ? value.toISOString() : value
+      ),
+      deserialize: (str) => JSON.parse(str, (key, value) =>
+        key === 'createdAt' && typeof value === 'string' ? new Date(value) : value
+      ),
     }
-
-    const existingOrder = get().orders.find((o) => o.tableId === tableId && o.status !== 'served');
-    if (existingOrder) {
-      addItemsToOrder(tableId, cart);
-      addNotification({ tableId, type: 'extra_order', message: `Table ${tableId} added more items` });
-      clearCart();
-      return;
-    }
-
-    const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0);
-    const readyAt = Date.now() + totalItems * 15 * 60 * 1000;
-
-    const order: Order = {
-      id: `O${Date.now()}`,
-      tableId,
-      items: [...cart],
-      status: 'pending',
-      total: cartTotal(),
-      createdAt: new Date(),
-      readyAt,
-    };
-    set((state) => ({ orders: [order, ...state.orders] }));
-    
-    // Sync to Firebase
-    const firebaseOrder: FirebaseOrder = {
-      ...order,
-      createdAt: order.createdAt.getTime(),
-    };
-    upsertOrder(firebaseOrder).catch(error => {
-      console.warn("Failed to sync order to Firebase:", error);
-    });
-
-    addNotification({ tableId, type: 'order', message: `New order from Table ${tableId}` });
-    clearCart();
-  },
-  updateOrderStatus: (id, status) => {
-    set((state) => ({
-      orders: state.orders.map((o) => o.id === id ? { ...o, status } : o),
-    }));
-    
-    // Sync to Firebase
-    const order = get().orders.find((o) => o.id === id);
-    if (order) {
-      const firebaseOrder: FirebaseOrder = {
-        ...order,
-        createdAt: order.createdAt.getTime(),
-      };
-      upsertOrder(firebaseOrder).catch(error => {
-        console.warn("Failed to sync order status to Firebase:", error);
-      });
-    }
-  },
-
-  tables: sampleTables,
-  addTable: (number) => set((state) => ({
-    tables: [...state.tables, { id: `T${Date.now()}`, number, status: 'available' }],
-  })),
-  deleteTable: (id) => set((state) => ({
-    tables: state.tables.filter((t) => t.id !== id),
-  })),
-
-  waiters: sampleWaiters,
-  addWaiter: (waiter) => set((state) => ({
-    waiters: [...state.waiters, { ...waiter, id: `W${Date.now()}` }],
-  })),
-  deleteWaiter: (id) => set((state) => ({
-    waiters: state.waiters.filter((w) => w.id !== id),
-  })),
-  toggleWaiterStatus: (id) => set((state) => ({
-    waiters: state.waiters.map((w) => w.id === id ? { ...w, active: !w.active } : w),
-  })),
-
-  notifications: [],
-  setNotifications: (notifications) => set({ notifications }),
-  addNotification: (notification) => {
-    const newNotification = { 
-      ...notification, 
-      id: `N${Date.now()}`, 
-      createdAt: new Date(), 
-      read: false 
-    };
-    
-    set((state) => ({
-      notifications: [newNotification, ...state.notifications],
-    }));
-    
-    // Sync to Firebase
-    const firebaseNotification: FirebaseNotification = {
-      ...newNotification,
-      createdAt: newNotification.createdAt.getTime(),
-    };
-    upsertNotification(firebaseNotification).catch(error => {
-      console.warn("Failed to sync notification to Firebase:", error);
-    });
-  },
-  markNotificationRead: (id) => {
-    set((state) => ({
-      notifications: state.notifications.map((n) => n.id === id ? { ...n, read: true } : n),
-    }));
-    
-    // Sync to Firebase
-    const notification = get().notifications.find((n) => n.id === id);
-    if (notification) {
-      const firebaseNotification: FirebaseNotification = {
-        ...notification,
-        read: true,
-        createdAt: notification.createdAt.getTime(),
-      };
-      upsertNotification(firebaseNotification).catch(error => {
-        console.warn("Failed to sync notification read status to Firebase:", error);
-      });
-    }
-  },
-  clearNotifications: () => set({ notifications: [] }),
-
-  currentTableId: null,
-  setCurrentTableId: (id) => set({ currentTableId: id }),
-}),
-{
-  name: 'qr-menu-store-v2',
-  // Keep data small; large images might exceed localStorage limits.
-  // Persist only lightweight UI state; menu items are loaded from Firestore.
-  partialize: (state) => ({
-    cart: state.cart,
-    tables: state.tables,
-    waiters: state.waiters,
-    notifications: state.notifications,
-    currentTableId: state.currentTableId,
-    categoryImages: state.categoryImages,
-    orders: state.orders, // Persist orders so they appear across tabs/windows
-  }),
-  // If you want to clear cached state during development:
-  // localStorage.removeItem('qr-menu-store');
-}
-)
+  )
 );
