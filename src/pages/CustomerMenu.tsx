@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { Plus, Minus, ShoppingCart, Bell, Receipt, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useRestaurantStore, type MenuItem } from '@/store/restaurantStore';
@@ -171,6 +171,8 @@ export default function CustomerMenu() {
   const { menuItems, cart, cartTotal, setCurrentTableId, addNotification, categoryImages, menuItemImages, placeOrder, orders } = useRestaurantStore();
   const [cartOpen, setCartOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const vegRef = useRef<HTMLDivElement>(null);
+  const nonVegRef = useRef<HTMLDivElement>(null);
 
   // Set current table when the route changes
   useEffect(() => {
@@ -304,8 +306,8 @@ export default function CustomerMenu() {
                   <>
                     {splitByDiet ? (
                       <>
-                        <div>
-                          <h2 className="text-lg font-semibold mb-3">Veg</h2>
+                        <div ref={vegRef}>
+                          <h2 className="text-lg font-semibold mb-3">🟢 Veg</h2>
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             {vegItems.map((item) => (
                               <div key={item.id} className="rounded-xl border border-border bg-card p-4">
@@ -314,8 +316,8 @@ export default function CustomerMenu() {
                             ))}
                           </div>
                         </div>
-                        <div>
-                          <h2 className="text-lg font-semibold mb-3">Non‑Veg</h2>
+                        <div ref={nonVegRef}>
+                          <h2 className="text-lg font-semibold mb-3">🔴 Non‑Veg</h2>
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             {nonVegItems.map((item) => (
                               <div key={item.id} className="rounded-xl border border-border bg-card p-4">
@@ -323,6 +325,22 @@ export default function CustomerMenu() {
                               </div>
                             ))}
                           </div>
+                        </div>
+
+                        {/* Floating Veg / Non-Veg scroll buttons */}
+                        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-40 flex gap-2">
+                          <button
+                            onClick={() => vegRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                            className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-green-600 text-white text-sm font-semibold shadow-lg active:scale-95 transition-transform"
+                          >
+                            🟢 Veg
+                          </button>
+                          <button
+                            onClick={() => nonVegRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                            className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-red-600 text-white text-sm font-semibold shadow-lg active:scale-95 transition-transform"
+                          >
+                            🔴 Non-Veg
+                          </button>
                         </div>
                       </>
                     ) : (
