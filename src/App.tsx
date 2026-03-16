@@ -13,6 +13,7 @@ import AdminSignUp from "./pages/AdminSignUp.tsx";
 import WaiterPanel from "./pages/WaiterPanel.tsx";
 import WaiterLogin from "./pages/WaiterLogin.tsx";
 import OrderSummaryPage from "./pages/OrderSummaryPage.tsx";
+import OrderTrackingPage from "./pages/OrderTrackingPage.tsx";
 import ProtectedRoute from "./components/ProtectedRoute.tsx";
 import { useFirebaseSync } from "./lib/useFirebaseSync";
 import { useOrdersSync } from "./lib/useOrdersSync";
@@ -33,6 +34,7 @@ const App = () => {
         <Route path="/table-session" element={<SessionSelection />} />
         <Route path="/menu/:tableId" element={<CustomerMenu />} />
         <Route path="/order-summary/:tableId" element={<OrderSummaryPage />} />
+        <Route path="/track/:tableId" element={<OrderTrackingPage />} />
         <Route path="/admin-login" element={<AdminLogin />} />
         <Route path="/admin-signup" element={<AdminSignUp />} />
         <Route

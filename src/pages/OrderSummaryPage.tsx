@@ -103,7 +103,7 @@ export default function OrderSummaryPage() {
   const handleCompleteOrder = () => {
     if (!order.paymentMethod) { toast.error('Please select a payment method'); return; }
     toast.success('Order placed! Enjoy your meal.');
-    navigate(`/menu/${tableId}`, { replace: true });
+    navigate(`/track/${tableId}`, { replace: true });
   };
 
   const handlePrintReceipt = () => {
@@ -209,8 +209,8 @@ export default function OrderSummaryPage() {
             <Printer className="h-4 w-4 mr-2" />
             Print / Download Receipt
           </Button>
-          <Button onClick={handleCompleteOrder} variant="outline" className="w-full" size="lg">
-            Done — Back to Menu
+          <Button onClick={() => navigate(`/track/${tableId}`)} variant="outline" className="w-full" size="lg">
+            Done — Track My Order
           </Button>
         </div>
       </div>

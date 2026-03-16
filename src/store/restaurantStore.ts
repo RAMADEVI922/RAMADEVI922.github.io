@@ -58,7 +58,7 @@ export interface Waiter {
 export interface Notification {
   id: string;
   tableId: string;
-  type: 'order' | 'call_waiter' | 'request_bill' | 'extra_order';
+  type: 'order' | 'call_waiter' | 'request_bill' | 'extra_order' | 'payment_request' | 'cash_payment';
   message: string;
   read: boolean;
   createdAt: Date;

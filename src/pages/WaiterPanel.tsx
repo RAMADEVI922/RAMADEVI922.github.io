@@ -7,8 +7,21 @@ import {
 } from '@/lib/firebaseService';
 import { sendBillEmail } from '@/lib/emailService';
 import { Button } from '@/components/ui/button';
-import { Check, Clock, Bell, Receipt, UtensilsCrossed, RefreshCw, LogOut, ChefHat, Mail, Loader2 } from 'lucide-react';
+import { Check, Clock, Bell, Receipt, UtensilsCrossed, RefreshCw, LogOut, ChefHat, Mail, Loader2, ShoppingBag, CheckCircle2, Utensils, UserCheck, UserX } from 'lucide-react';
 import { toast } from 'sonner';
+
+const STATUS_STEPS = [
+  { key: 'pending',   label: 'Order Placed',   sub: 'Waiting for confirmation',    icon: <ShoppingBag className="h-4 w-4" /> },
+  { key: 'confirmed', label: 'Confirmed',       sub: 'Kitchen accepted',            icon: <CheckCircle2 className="h-4 w-4" /> },
+  { key: 'preparing', label: 'Preparing',       sub: 'Chef is cooking',             icon: <ChefHat className="h-4 w-4" /> },
+  { key: 'served',    label: 'Ready to Serve',  sub: 'Food on the way',             icon: <Utensils className="h-4 w-4" /> },
+] as const;
+
+type OrderStatus = 'pending' | 'confirmed' | 'preparing' | 'served';
+
+function stepIndex(status: OrderStatus) {
+  return STATUS_STEPS.findIndex((s) => s.key === status);
+}
 
 function useWaiterGuard() {
   const navigate = useNavigate();
@@ -18,29 +31,6 @@ function useWaiterGuard() {
     if (!waiterId) navigate('/waiter-login', { replace: true });
   }, [waiterId, navigate]);
   return { waiterId, waiterName };
-}
-
-// Vacate confirmation dialog
-function VacateDialog({ tableId, onConfirm, onCancel }: { tableId: string; onConfirm: () => void; onCancel: () => void }) {
-  return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm">
-        <div className="text-center mb-5">
-          <div className="h-14 w-14 rounded-full bg-orange-100 flex items-center justify-center mx-auto mb-3">
-            <UtensilsCrossed className="h-7 w-7 text-orange-500" />
-          </div>
-          <h2 className="text-lg font-extrabold">Table {tableId} Served</h2>
-          <p className="text-sm text-muted-foreground mt-1">Has the customer vacated the table?</p>
-        </div>
-        <div className="flex gap-3">
-          <Button variant="outline" className="flex-1" onClick={onCancel}>Not Yet</Button>
-          <Button className="flex-1 bg-green-600 hover:bg-green-700" onClick={onConfirm}>
-            Table Vacated
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
 }
 
 export default function WaiterPanel() {
@@ -56,10 +46,11 @@ export default function WaiterPanel() {
   const [refreshing, setRefreshing] = useState(false);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
   const [sendingMsg, setSendingMsg] = useState<string | null>(null);
-  const [vacateTarget, setVacateTarget] = useState<{ orderId: string; tableId: string } | null>(null);
   const [emailInputs, setEmailInputs] = useState<Record<string, string>>({});
   const [sendingEmail, setSendingEmail] = useState<string | null>(null);
   const [emailSent, setEmailSent] = useState<Record<string, boolean>>({});
+  // Track which served orders the waiter has dismissed ("Still at Table")
+  const [snoozedOrders, setSnoozedOrders] = useState<Set<string>>(new Set());
 
   const pendingOrders = orders
     .filter((o) => o.status === 'pending')
@@ -67,6 +58,11 @@ export default function WaiterPanel() {
 
   const myActiveOrders = orders.filter(
     (o) => o.assignedWaiterId === waiterId && (o.status === 'confirmed' || o.status === 'preparing')
+  );
+
+  // Served orders assigned to this waiter that haven't been vacated yet
+  const myServedOrders = orders.filter(
+    (o) => o.assignedWaiterId === waiterId && o.status === 'served' && !snoozedOrders.has(o.id)
   );
 
   const unreadNotifications = notifications.filter((n) => !n.read);
@@ -102,7 +98,7 @@ export default function WaiterPanel() {
 
   useEffect(() => {
     refresh();
-    const interval = setInterval(refresh, 120000);
+    const interval = setInterval(refresh, 15000); // poll every 15s so cash payment alerts appear quickly
     return () => clearInterval(interval);
   }, [refresh]);
 
@@ -125,27 +121,49 @@ export default function WaiterPanel() {
     }
   };
 
-  const handleServed = (orderId: string, tableId: string) => {
+  const handleServed = async (orderId: string, tableId: string) => {
     updateOrderStatus(orderId, 'served');
-    toast.success('Order marked as served');
-    setVacateTarget({ orderId, tableId });
-  };
-
-  const handleVacateConfirm = async () => {
-    if (!vacateTarget) return;
-    vacateTable(vacateTarget.tableId);
+    toast.success(`Table ${tableId} — food served`);
+    // Notify customer: food served + trigger payment modal on their screen
     try {
       await upsertNotification({
-        id: `N${vacateTarget.tableId}_vacated_${Date.now()}`,
-        tableId: vacateTarget.tableId,
+        id: `N${tableId}_served_${Date.now()}`,
+        tableId,
         type: 'order',
-        message: `🙏 Thank you for dining with us! Table ${vacateTarget.tableId} is now available.`,
+        message: `🍽️ Your food has been served! Enjoy your meal.`,
+        read: false,
+        createdAt: Date.now(),
+      });
+      await upsertNotification({
+        id: `N${tableId}_payment_request_${Date.now()}`,
+        tableId,
+        type: 'payment_request',
+        message: `💳 Please complete your payment.`,
+        read: false,
+        createdAt: Date.now() + 1, // +1ms so it sorts after served notification
+      });
+    } catch (_) {}
+  };
+
+  const handleVacate = async (orderId: string, tableId: string) => {
+    vacateTable(tableId);
+    setSnoozedOrders((prev) => new Set([...prev, orderId]));
+    try {
+      await upsertNotification({
+        id: `N${tableId}_vacated_${Date.now()}`,
+        tableId,
+        type: 'order',
+        message: `🙏 Thank you for dining with us! Hope to see you again soon.`,
         read: false,
         createdAt: Date.now(),
       });
     } catch (_) {}
-    toast.success(`Table ${vacateTarget.tableId} is now available`);
-    setVacateTarget(null);
+    toast.success(`Table ${tableId} is now available`);
+  };
+
+  const handleStillAtTable = (orderId: string, tableId: string) => {
+    setSnoozedOrders((prev) => new Set([...prev, orderId]));
+    toast(`Table ${tableId} — keeping order visible`);
   };
 
   const handleOrderComing = async (order: typeof orders[0], mins?: number) => {
@@ -205,14 +223,6 @@ export default function WaiterPanel() {
 
   return (
     <div className="min-h-screen bg-background">
-      {vacateTarget && (
-        <VacateDialog
-          tableId={vacateTarget.tableId}
-          onConfirm={handleVacateConfirm}
-          onCancel={() => setVacateTarget(null)}
-        />
-      )}
-
       {/* Header */}
       <header className="border-b border-border bg-background sticky top-0 z-10">
         <div className="max-w-2xl mx-auto px-4 py-4 flex items-center justify-between">
@@ -253,43 +263,82 @@ export default function WaiterPanel() {
         {unreadNotifications.length > 0 && (
           <div className="space-y-2">
             <h2 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Alerts</h2>
-            {unreadNotifications.map((n) => (
-              <div key={n.id} className={`flex items-center justify-between p-3 rounded-xl border ${
-                n.type === 'call_waiter' ? 'bg-yellow-50 border-yellow-200' :
-                n.type === 'request_bill' ? 'bg-blue-50 border-blue-200' : 'bg-background border-border'
-              }`}>
-                <div className="flex items-center gap-3">
-                  {n.type === 'call_waiter' ? <Bell className="h-4 w-4 text-yellow-600" /> :
-                   n.type === 'request_bill' ? <Receipt className="h-4 w-4 text-blue-600" /> :
-                   <UtensilsCrossed className="h-4 w-4" />}
-                  <span className="text-sm font-medium">{n.message}</span>
+            {unreadNotifications.map((n) => {
+              // For cash_payment: render a rich card with order details from store
+              if (n.type === 'cash_payment') {
+                const cashOrder = orders.find(
+                  (o) => o.tableId === n.tableId && (o.status === 'served' || o.status === 'preparing' || o.status === 'confirmed')
+                ) ?? orders.filter((o) => o.tableId === n.tableId).sort(
+                  (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+                )[0];
+                return (
+                  <div key={n.id} className="rounded-xl border-2 border-green-400 bg-green-50 overflow-hidden">
+                    <div className="flex items-center justify-between px-4 py-3 bg-green-500 text-white">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xl">💵</span>
+                        <div>
+                          <p className="font-bold text-sm">Cash Payment — Table {n.tableId}</p>
+                          <p className="text-xs text-green-100">Customer wants to pay cash</p>
+                        </div>
+                      </div>
+                      <Button size="sm" variant="ghost" className="text-white hover:bg-green-600 shrink-0"
+                        onClick={() => markNotificationRead(n.id)}>Dismiss</Button>
+                    </div>
+                    {cashOrder ? (
+                      <div className="px-4 py-3 space-y-1">
+                        {cashOrder.items.map((item) => (
+                          <div key={item.id} className="flex justify-between text-sm text-green-900">
+                            <span>{item.name} <span className="text-green-600">×{item.quantity}</span></span>
+                            <span className="font-medium">₹{(item.price * item.quantity).toLocaleString('en-IN')}</span>
+                          </div>
+                        ))}
+                        <div className="flex justify-between font-bold text-green-900 pt-2 border-t border-green-200 text-base">
+                          <span>Total to Collect</span>
+                          <span>₹{cashOrder.total.toLocaleString('en-IN')}</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="px-4 py-3 text-sm text-green-800 whitespace-pre-line">{n.message}</p>
+                    )}
+                  </div>
+                );
+              }
+
+              return (
+                <div key={n.id} className={`flex items-center justify-between p-3 rounded-xl border ${
+                  n.type === 'call_waiter' ? 'bg-yellow-50 border-yellow-200' :
+                  n.type === 'request_bill' ? 'bg-blue-50 border-blue-200' :
+                  'bg-background border-border'
+                }`}>
+                  <div className="flex items-start gap-3 flex-1 min-w-0">
+                    {n.type === 'call_waiter' ? <Bell className="h-4 w-4 text-yellow-600 shrink-0 mt-0.5" /> :
+                     n.type === 'request_bill' ? <Receipt className="h-4 w-4 text-blue-600 shrink-0 mt-0.5" /> :
+                     <UtensilsCrossed className="h-4 w-4 shrink-0 mt-0.5" />}
+                    <span className="text-sm font-medium">{n.message}</span>
+                  </div>
+                  <Button variant="ghost" size="sm" className="shrink-0 ml-2" onClick={() => markNotificationRead(n.id)}>Dismiss</Button>
                 </div>
-                <Button variant="ghost" size="sm" onClick={() => markNotificationRead(n.id)}>Dismiss</Button>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
-        {/* My Active Tables */}
-        <div>
-          <h2 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-3">
-            My Tables ({myActiveOrders.length})
-          </h2>
-          {myActiveOrders.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-2">No tables assigned to you yet.</p>
-          ) : (
+        {/* Served — Awaiting Vacate */}
+        {myServedOrders.length > 0 && (
+          <div>
+            <h2 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-3">
+              Served — Check Table ({myServedOrders.length})
+            </h2>
             <div className="space-y-4">
-              {myActiveOrders.map((order) => (
-                <div key={order.id} className="border border-primary/30 bg-primary/5 rounded-2xl p-4">
+              {myServedOrders.map((order) => (
+                <div key={order.id} className="border border-green-300 bg-green-50/40 rounded-2xl p-4">
                   <div className="flex justify-between items-start mb-3">
                     <div>
                       <p className="font-bold text-lg">Table {order.tableId}</p>
                       <p className="text-xs text-muted-foreground">{order.items.length} items · ₹{order.total.toLocaleString('en-IN')}</p>
                     </div>
                     <div className="flex flex-col items-end gap-1">
-                      <span className={`text-xs px-2 py-1 rounded-full font-semibold ${
-                        order.status === 'confirmed' ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'
-                      }`}>{order.status}</span>
+                      <span className="text-xs px-2 py-1 rounded-full font-semibold bg-green-100 text-green-700">✓ Served</span>
                       {order.paymentMethod === 'online' && (
                         <span className={`text-xs px-2 py-1 rounded-full font-semibold ${
                           order.paymentStatus === 'paid' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
@@ -303,6 +352,157 @@ export default function WaiterPanel() {
                     </div>
                   </div>
 
+                  {/* Order items */}
+                  <div className="space-y-1 mb-4 text-sm bg-white rounded-xl border border-border p-3">
+                    {order.items.map((item) => (
+                      <div key={item.id} className="flex justify-between">
+                        <span>{item.name} × {item.quantity}</span>
+                        <span className="text-muted-foreground">₹{(item.price * item.quantity).toLocaleString('en-IN')}</span>
+                      </div>
+                    ))}
+                    <div className="flex justify-between font-semibold pt-2 border-t border-border">
+                      <span>Total</span><span>₹{order.total.toLocaleString('en-IN')}</span>
+                    </div>
+                  </div>
+
+                  {/* Vacate question */}
+                  <p className="text-sm font-medium text-center text-muted-foreground mb-3">
+                    Has the customer left the table?
+                  </p>
+                  <div className="flex gap-3">
+                    <Button
+                      variant="outline"
+                      className="flex-1 gap-2 border-orange-300 text-orange-600 hover:bg-orange-50"
+                      onClick={() => handleStillAtTable(order.id, order.tableId)}
+                    >
+                      <UserCheck className="h-4 w-4" />
+                      Still at Table
+                    </Button>
+                    <Button
+                      className="flex-1 gap-2 bg-green-600 hover:bg-green-700 text-white"
+                      onClick={() => handleVacate(order.id, order.tableId)}
+                    >
+                      <UserX className="h-4 w-4" />
+                      Table Vacated
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* My Active Tables */}
+        <div>
+          <h2 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-3">
+            My Tables ({myActiveOrders.length})
+          </h2>
+          {myActiveOrders.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-2">No tables assigned to you yet.</p>
+          ) : (
+            <div className="space-y-4">
+              {myActiveOrders.map((order) => {
+                const currentStep = stepIndex(order.status as OrderStatus);
+
+                const handleStepClick = async (stepKey: OrderStatus) => {
+                  const newIdx = stepIndex(stepKey);
+                  if (newIdx <= currentStep) return;
+                  if (newIdx !== currentStep + 1) return;
+
+                  if (stepKey === 'served') {
+                    handleServed(order.id, order.tableId);
+                    return;
+                  }
+
+                  updateOrderStatus(order.id, stepKey);
+                  toast.success(`Table ${order.tableId} → ${stepKey}`);
+
+                  const msgs: Record<string, string> = {
+                    confirmed: `✅ Your order has been confirmed! We're preparing it now.`,
+                    preparing: `👨‍🍳 Chef is now preparing your food!`,
+                  };
+                  try {
+                    await upsertNotification({
+                      id: `N${order.tableId}_${stepKey}_${Date.now()}`,
+                      tableId: order.tableId,
+                      type: 'order',
+                      message: msgs[stepKey] || `Order status: ${stepKey}`,
+                      read: false,
+                      createdAt: Date.now(),
+                    });
+                  } catch (_) {}
+                };
+
+                return (
+                <div key={order.id} className="border border-primary/30 bg-primary/5 rounded-2xl p-4">
+                  {/* Header */}
+                  <div className="flex justify-between items-start mb-4">
+                    <div>
+                      <p className="font-bold text-lg">Table {order.tableId}</p>
+                      <p className="text-xs text-muted-foreground">{order.items.length} items · ₹{order.total.toLocaleString('en-IN')}</p>
+                    </div>
+                    <div className="flex flex-col items-end gap-1">
+                      {order.paymentMethod === 'online' && (
+                        <span className={`text-xs px-2 py-1 rounded-full font-semibold ${
+                          order.paymentStatus === 'paid' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
+                        }`}>
+                          {order.paymentStatus === 'paid' ? '✓ Online Paid' : 'Online - Pending'}
+                        </span>
+                      )}
+                      {order.paymentMethod === 'cash' && (
+                        <span className="text-xs px-2 py-1 rounded-full font-semibold bg-gray-100 text-gray-600">Cash</span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Status stepper */}
+                  <div className="bg-white rounded-xl border border-border p-3 mb-4">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Update Status</p>
+                    <div className="relative">
+                      <div className="absolute left-4 top-4 bottom-4 w-0.5 bg-border" />
+                      <div
+                        className="absolute left-4 top-4 w-0.5 bg-primary transition-all duration-500"
+                        style={{ height: `${(currentStep / (STATUS_STEPS.length - 1)) * 100}%` }}
+                      />
+                      <div className="space-y-3">
+                        {STATUS_STEPS.map((step, i) => {
+                          const done = i < currentStep;
+                          const active = i === currentStep;
+                          const isNext = i === currentStep + 1;
+                          const future = i > currentStep;
+                          return (
+                            <button
+                              key={step.key}
+                              disabled={!isNext}
+                              onClick={() => handleStepClick(step.key as OrderStatus)}
+                              className={`relative z-10 w-full flex items-center gap-3 text-left rounded-lg px-2 py-1.5 transition-all ${
+                                isNext ? 'hover:bg-primary/10 cursor-pointer ring-1 ring-primary/30' : 'cursor-default'
+                              }`}
+                            >
+                              <div className={`flex items-center justify-center w-8 h-8 rounded-full border-2 shrink-0 transition-all ${
+                                done   ? 'bg-primary border-primary text-white' :
+                                active ? 'bg-primary border-primary text-white shadow-md shadow-primary/30' :
+                                isNext ? 'bg-background border-primary/50 text-primary' :
+                                         'bg-background border-border text-muted-foreground'
+                              }`}>
+                                {done ? <Check className="h-4 w-4" /> : step.icon}
+                              </div>
+                              <div className={`flex-1 ${future && !isNext ? 'opacity-40' : ''}`}>
+                                <p className={`text-sm font-semibold ${active ? 'text-primary' : ''}`}>
+                                  {step.label}
+                                  {active && <span className="ml-2 text-xs font-normal text-primary">● Now</span>}
+                                  {isNext && <span className="ml-2 text-xs font-normal text-muted-foreground">← tap to advance</span>}
+                                </p>
+                                <p className="text-xs text-muted-foreground">{step.sub}</p>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Items */}
                   <div className="space-y-1 mb-4 text-sm">
                     {order.items.map((item) => (
                       <div key={item.id} className="flex justify-between">
@@ -325,7 +525,7 @@ export default function WaiterPanel() {
                     </Button>
                   </div>
 
-                  {/* Email bill to customer */}
+                  {/* Email bill */}
                   <div className="mb-3">
                     {emailSent[order.id] ? (
                       <p className="text-xs text-green-600 font-medium text-center py-1">✓ Bill emailed to customer</p>
@@ -347,14 +547,9 @@ export default function WaiterPanel() {
                       </div>
                     )}
                   </div>
-
-                  {/* Mark Served */}
-                  <Button size="sm" className="w-full gap-1.5 bg-green-600 hover:bg-green-700"
-                    onClick={() => handleServed(order.id, order.tableId)}>
-                    <UtensilsCrossed className="h-3.5 w-3.5" /> Mark as Served
-                  </Button>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
