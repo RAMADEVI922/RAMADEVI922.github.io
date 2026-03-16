@@ -3,6 +3,7 @@ import { useRestaurantStore } from "@/store/restaurantStore";
 import {
   fetchMenuItems,
   fetchCategoryBanners,
+  fetchPaymentConfig,
   type FirebaseOrder,
   type FirebaseNotification
 } from "./firebaseService";
@@ -12,6 +13,8 @@ import {
 export function useFirebaseSync() {
   const setMenuItems = useRestaurantStore((state) => state.setMenuItems);
   const setCategoryBanners = useRestaurantStore((state) => state.setCategoryBanners);
+  const setPaymentQRCode = useRestaurantStore((state) => state.setPaymentQRCode);
+  const setPaymentUPIId = useRestaurantStore((state) => state.setPaymentUPIId);
 
   useEffect(() => {
     let cancelled = false;
@@ -19,9 +22,10 @@ export function useFirebaseSync() {
     const runInit = async () => {
       if (cancelled) return;
       try {
-        const [items, banners] = await Promise.allSettled([
+        const [items, banners, paymentConfig] = await Promise.allSettled([
           fetchMenuItems(),
           fetchCategoryBanners(),
+          fetchPaymentConfig(),
         ]);
 
         if (cancelled) return;
@@ -46,6 +50,13 @@ export function useFirebaseSync() {
         if (banners.status === 'fulfilled') {
           setCategoryBanners(banners.value);
         }
+
+        // Load payment config from Firestore — overrides localStorage so all devices stay in sync
+        if (paymentConfig.status === 'fulfilled' && paymentConfig.value) {
+          const { qrCodes, upiIds } = paymentConfig.value;
+          Object.entries(qrCodes || {}).forEach(([provider, img]) => setPaymentQRCode(provider, img as string));
+          Object.entries(upiIds || {}).forEach(([provider, id]) => setPaymentUPIId(provider, id as string));
+        }
       } catch (error) {
         console.warn("Firebase sync failed:", error);
       }
@@ -62,5 +73,5 @@ export function useFirebaseSync() {
     }
 
     return () => { cancelled = true; };
-  }, [setMenuItems, setCategoryBanners]);
+  }, [setMenuItems, setCategoryBanners, setPaymentQRCode, setPaymentUPIId]);
 }

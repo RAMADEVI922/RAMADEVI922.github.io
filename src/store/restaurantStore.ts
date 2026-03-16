@@ -5,6 +5,9 @@ import {
   deleteMenuItem as deleteMenuItemFromDb,
   upsertOrder,
   upsertNotification,
+  saveProviderPaymentConfig,
+  saveProviderUPIId,
+  fetchPaymentConfig,
   type FirebaseOrder,
   type FirebaseNotification,
 } from "@/lib/firebaseService";
@@ -33,6 +36,7 @@ export interface Order {
   createdAt: Date;
   readyAt: number;
   paymentMethod?: 'cash' | 'online';
+  paymentStatus?: 'pending' | 'paid'; // online payment confirmation
   assignedWaiterId?: string;
   customerEmail?: string;
 }
@@ -159,6 +163,12 @@ interface RestaurantStore {
   setMenuItemImage: (itemId: string, image: string) => void;
   clearMenuItemImage: (itemId: string) => void;
 
+  paymentQRCodes: Record<string, string>; // provider -> base64
+  setPaymentQRCode: (provider: string, image: string) => void;
+  clearPaymentQRCode: (provider: string) => void;
+  paymentUPIIds: Record<string, string>; // provider -> UPI ID
+  setPaymentUPIId: (provider: string, upiId: string) => void;
+
   cart: CartItem[];
   addToCart: (item: MenuItem) => void;
   removeFromCart: (id: string) => void;
@@ -176,6 +186,7 @@ interface RestaurantStore {
   getOrderByTableId: (tableId: string) => Order | undefined;
   getActiveOrderForTable: (tableId: string) => Order | undefined;
   updateOrderPaymentMethod: (orderId: string, method: 'cash' | 'online') => void;
+  confirmOnlinePayment: (orderId: string) => void;
 
   tables: Table[];
   addTable: (number: number) => void;
@@ -229,6 +240,34 @@ export const useRestaurantStore = create<RestaurantStore>()(
         delete next[itemId];
         return { menuItemImages: next };
       }),
+
+      paymentQRCodes: {},
+      setPaymentQRCode: (provider, image) => {
+        set((state) => ({
+          paymentQRCodes: { ...state.paymentQRCodes, [provider]: image },
+        }));
+        const upiId = get().paymentUPIIds[provider] || '';
+        saveProviderPaymentConfig(provider, image, upiId)
+          .catch((e) => console.warn('[setPaymentQRCode] sync failed:', e));
+      },
+      clearPaymentQRCode: (provider) => {
+        set((state) => {
+          const next = { ...state.paymentQRCodes };
+          delete next[provider];
+          return { paymentQRCodes: next };
+        });
+        const upiId = get().paymentUPIIds[provider] || '';
+        saveProviderPaymentConfig(provider, '', upiId)
+          .catch((e) => console.warn('[clearPaymentQRCode] sync failed:', e));
+      },
+      paymentUPIIds: {},
+      setPaymentUPIId: (provider, upiId) => {
+        set((state) => ({
+          paymentUPIIds: { ...state.paymentUPIIds, [provider]: upiId },
+        }));
+        saveProviderUPIId(provider, upiId)
+          .catch((e) => console.warn('[setPaymentUPIId] sync failed:', e));
+      },
       updateMenuItem: async (id, updates) => {
         set((state) => ({
           menuItems: state.menuItems.map((item) => item.id === id ? { ...item, ...updates } : item),
@@ -360,6 +399,16 @@ export const useRestaurantStore = create<RestaurantStore>()(
         get().orders.find((o) => o.tableId === tableId && ['pending', 'confirmed', 'preparing'].includes(o.status)),
       updateOrderPaymentMethod: (orderId, method) =>
         set((state) => ({ orders: state.orders.map((o) => o.id === orderId ? { ...o, paymentMethod: method } : o) })),
+      confirmOnlinePayment: (orderId) => {
+        set((state) => ({
+          orders: state.orders.map((o) => o.id === orderId ? { ...o, paymentStatus: 'paid' } : o),
+        }));
+        const order = get().orders.find((o) => o.id === orderId);
+        if (order) {
+          upsertOrder({ ...order, createdAt: order.createdAt.getTime() } as FirebaseOrder)
+            .catch((e) => console.warn('Failed to sync payment confirmation:', e));
+        }
+      },
 
       tables: sampleTables,
       addTable: (number) => set((state) => ({
@@ -417,6 +466,8 @@ export const useRestaurantStore = create<RestaurantStore>()(
         currentTableId: state.currentTableId,
         categoryImages: state.categoryImages,
         menuItemImages: state.menuItemImages,
+        paymentQRCodes: state.paymentQRCodes,
+        paymentUPIIds: state.paymentUPIIds,
         // orders and notifications are NOT persisted — always fetched fresh from Firestore
       }),
     }

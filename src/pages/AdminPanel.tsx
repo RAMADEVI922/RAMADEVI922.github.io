@@ -3,7 +3,7 @@ import { useRestaurantStore } from '@/store/restaurantStore';
 import { clearAdminSession } from '@/lib/adminAuth';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
-import { Plus, Trash2, LayoutDashboard, UtensilsCrossed, Users, Receipt, LogOut, QrCode, ListOrdered } from 'lucide-react';
+import { Plus, Trash2, LayoutDashboard, UtensilsCrossed, Users, Receipt, LogOut, QrCode, ListOrdered, Upload, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Link, useNavigate } from 'react-router-dom';
 
@@ -11,7 +11,7 @@ import MenuManagement from '@/components/admin/MenuManagement';
 import TableManagement from '@/components/admin/TableManagement';
 import OrdersQueue from '@/components/admin/OrdersQueue';
 
-type AdminTab = 'dashboard' | 'menu' | 'tables' | 'orders-queue' | 'waiters' | 'bills';
+type AdminTab = 'dashboard' | 'menu' | 'tables' | 'orders-queue' | 'waiters' | 'bills' | 'payment-qr';
 
 const navItems: { id: AdminTab; label: string; icon: React.ReactNode }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="h-4 w-4" /> },
@@ -20,6 +20,7 @@ const navItems: { id: AdminTab; label: string; icon: React.ReactNode }[] = [
   { id: 'orders-queue', label: 'Orders Queue', icon: <ListOrdered className="h-4 w-4" /> },
   { id: 'waiters', label: 'Waiters', icon: <Users className="h-4 w-4" /> },
   { id: 'bills', label: 'Bills', icon: <Receipt className="h-4 w-4" /> },
+  { id: 'payment-qr', label: 'Payment QR', icon: <QrCode className="h-4 w-4" /> },
 ];
 
 function Sidebar({ activeTab, setActiveTab }: { activeTab: AdminTab; setActiveTab: (t: AdminTab) => void }) {
@@ -507,6 +508,107 @@ function BillManagement() {
   );
 }
 
+function PaymentQRManagement() {
+  const { paymentQRCodes, setPaymentQRCode, clearPaymentQRCode, paymentUPIIds, setPaymentUPIId } = useRestaurantStore();
+  const [upiInputs, setUpiInputs] = useState<Record<string, string>>(() => ({ ...paymentUPIIds }));
+
+  const providers = [
+    { id: 'phonepe', label: 'PhonePe', color: 'bg-purple-50 border-purple-200', badge: 'bg-purple-100 text-purple-700' },
+    { id: 'gpay', label: 'Google Pay', color: 'bg-blue-50 border-blue-200', badge: 'bg-blue-100 text-blue-700' },
+    { id: 'paytm', label: 'Paytm', color: 'bg-sky-50 border-sky-200', badge: 'bg-sky-100 text-sky-700' },
+  ];
+
+  const handleUpload = (provider: string, file: File) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const result = e.target?.result as string;
+      setPaymentQRCode(provider, result);
+      toast.success(`${provider} QR code uploaded`);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleSaveUPI = (provider: string) => {
+    const val = (upiInputs[provider] || '').trim();
+    setPaymentUPIId(provider, val);
+    toast.success(val ? `UPI ID saved for ${provider}` : `UPI ID cleared for ${provider}`);
+  };
+
+  return (
+    <div>
+      <div className="mb-8">
+        <h2 className="text-2xl font-extrabold tracking-tight">Payment QR Codes</h2>
+        <p className="text-muted-foreground mt-1">Upload your UPI QR codes and set UPI IDs. Customers will scan these when paying online.</p>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {providers.map((p) => (
+          <div key={p.id} className={`border-2 rounded-2xl p-6 ${paymentQRCodes[p.id] ? p.color : 'border-border bg-card'} transition-all`}>
+            <div className="flex items-center justify-between mb-4">
+              <span className={`text-sm font-bold px-3 py-1 rounded-full ${p.badge}`}>{p.label}</span>
+              {paymentQRCodes[p.id] && (
+                <button onClick={() => clearPaymentQRCode(p.id)} className="text-muted-foreground hover:text-destructive transition-colors">
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+
+            {paymentQRCodes[p.id] ? (
+              <div className="text-center">
+                <img
+                  src={paymentQRCodes[p.id]}
+                  alt={`${p.label} QR`}
+                  className="w-40 h-40 object-contain mx-auto rounded-xl border border-border bg-white p-2"
+                />
+                <p className="text-xs text-green-600 font-semibold mt-3">✓ QR code active</p>
+                <label className="mt-2 inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground cursor-pointer">
+                  <Upload className="h-3 w-3" /> Replace
+                  <input type="file" accept="image/*" className="hidden" onChange={(e) => e.target.files?.[0] && handleUpload(p.id, e.target.files[0])} />
+                </label>
+              </div>
+            ) : (
+              <label className="flex flex-col items-center justify-center h-40 border-2 border-dashed border-border rounded-xl cursor-pointer hover:border-primary hover:bg-primary/5 transition-all">
+                <Upload className="h-8 w-8 text-muted-foreground mb-2" />
+                <span className="text-sm font-semibold text-muted-foreground">Upload QR Code</span>
+                <span className="text-xs text-muted-foreground mt-1">PNG, JPG supported</span>
+                <input type="file" accept="image/*" className="hidden" onChange={(e) => e.target.files?.[0] && handleUpload(p.id, e.target.files[0])} />
+              </label>
+            )}
+
+            {/* UPI ID input */}
+            <div className="mt-4 space-y-1.5">
+              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">UPI ID (for app deep link)</label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder={`e.g. name@${p.id}`}
+                  value={upiInputs[p.id] || ''}
+                  onChange={(e) => setUpiInputs((prev) => ({ ...prev, [p.id]: e.target.value }))}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSaveUPI(p.id)}
+                  className="flex-1 text-xs bg-background border border-border rounded-lg px-2.5 py-2 focus:outline-none focus:ring-2 focus:ring-primary/50"
+                />
+                <button
+                  onClick={() => handleSaveUPI(p.id)}
+                  className="text-xs px-3 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 font-semibold shrink-0"
+                >
+                  Save
+                </button>
+              </div>
+              {paymentUPIIds[p.id] && (
+                <p className="text-xs text-green-600">✓ {paymentUPIIds[p.id]}</p>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-700">
+        💡 Upload QR codes and enter UPI IDs. When a customer selects online payment, they can scan the QR or tap "Open in App" to pay the exact bill amount directly in PhonePe/GPay/Paytm.
+      </div>
+    </div>
+  );
+}
+
 export default function AdminPanel() {
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
 
@@ -521,6 +623,7 @@ export default function AdminPanel() {
           {activeTab === 'orders-queue' && <OrdersQueue />}
           {activeTab === 'waiters' && <WaiterManagement />}
           {activeTab === 'bills' && <BillManagement />}
+          {activeTab === 'payment-qr' && <PaymentQRManagement />}
         </div>
       </main>
     </div>

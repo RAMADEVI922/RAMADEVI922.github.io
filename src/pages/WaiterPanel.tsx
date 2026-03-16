@@ -286,9 +286,21 @@ export default function WaiterPanel() {
                       <p className="font-bold text-lg">Table {order.tableId}</p>
                       <p className="text-xs text-muted-foreground">{order.items.length} items · ₹{order.total.toLocaleString('en-IN')}</p>
                     </div>
-                    <span className={`text-xs px-2 py-1 rounded-full font-semibold ${
-                      order.status === 'confirmed' ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'
-                    }`}>{order.status}</span>
+                    <div className="flex flex-col items-end gap-1">
+                      <span className={`text-xs px-2 py-1 rounded-full font-semibold ${
+                        order.status === 'confirmed' ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'
+                      }`}>{order.status}</span>
+                      {order.paymentMethod === 'online' && (
+                        <span className={`text-xs px-2 py-1 rounded-full font-semibold ${
+                          order.paymentStatus === 'paid' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
+                        }`}>
+                          {order.paymentStatus === 'paid' ? '✓ Online Paid' : 'Online - Pending'}
+                        </span>
+                      )}
+                      {order.paymentMethod === 'cash' && (
+                        <span className="text-xs px-2 py-1 rounded-full font-semibold bg-gray-100 text-gray-600">Cash</span>
+                      )}
+                    </div>
                   </div>
 
                   <div className="space-y-1 mb-4 text-sm">

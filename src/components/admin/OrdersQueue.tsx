@@ -108,6 +108,17 @@ function OrderRow({ order, queuePosition, onStatusChange, waiterName }: {
               <span className="text-muted-foreground ml-1.5">{item.name}</span>
             </div>
           ))}
+          {/* Payment badge */}
+          {order.paymentMethod === 'online' && (
+            <span className={`inline-block mt-1 text-xs px-2 py-0.5 rounded-full font-semibold ${
+              order.paymentStatus === 'paid' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
+            }`}>
+              {order.paymentStatus === 'paid' ? '✓ Online Paid' : 'Online - Awaiting'}
+            </span>
+          )}
+          {order.paymentMethod === 'cash' && (
+            <span className="inline-block mt-1 text-xs px-2 py-0.5 rounded-full font-semibold bg-gray-100 text-gray-600">Cash</span>
+          )}
         </div>
       </td>
       <td className="px-4 py-4 text-sm text-muted-foreground">

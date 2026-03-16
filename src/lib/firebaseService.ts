@@ -57,6 +57,7 @@ const getMenuItemsCollection = () => db ? collection(db, "menuItems") : null;
 const getPhotosCollection = () => db ? collection(db, "photos") : null;
 const getOrdersCollection = () => db ? collection(db, "orders") : null;
 const getNotificationsCollection = () => db ? collection(db, "notifications") : null;
+const getConfigCollection = () => db ? collection(db, "config") : null;
 
 export async function fetchMenuItems(): Promise<FirebaseMenuItem[]> {
   const menuItemsCollection = getMenuItemsCollection();
@@ -464,5 +465,94 @@ export async function updateOrderStatus(orderId: string, status: string): Promis
     await setDoc(docRef, { status }, { merge: true });
   } catch (error) {
     console.warn('Failed to update order status:', error);
+  }
+}
+
+// ── Payment Config (QR codes + UPI IDs) ──────────────────────────────────────
+// Each provider stored as its own doc to avoid 1MB Firestore limit:
+//   config/payment_phonepe  { qrCode: base64, upiId: string }
+//   config/payment_gpay     { qrCode: base64, upiId: string }
+//   config/payment_paytm    { qrCode: base64, upiId: string }
+
+export interface PaymentConfig {
+  qrCodes: Record<string, string>;
+  upiIds: Record<string, string>;
+}
+
+// Compress a base64 image string to a small size suitable for Firestore
+// QR codes are B&W so they compress very well even at low quality
+async function compressBase64QR(base64: string): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      // QR codes don't need to be large — 300px is plenty for display
+      const size = Math.min(300, img.width);
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d')!;
+      ctx.drawImage(img, 0, 0, size, size);
+      // Try progressively lower quality
+      for (const q of [0.5, 0.3, 0.2, 0.1]) {
+        const result = canvas.toDataURL('image/jpeg', q);
+        if (result.length < 200_000) { // under ~150KB
+          resolve(result);
+          return;
+        }
+      }
+      resolve(canvas.toDataURL('image/jpeg', 0.1));
+    };
+    img.onerror = () => resolve(base64); // fallback: use original
+    img.src = base64;
+  });
+}
+
+export async function saveProviderPaymentConfig(
+  provider: string,
+  qrCode: string,
+  upiId: string
+): Promise<void> {
+  const col = getConfigCollection();
+  if (!isFirebaseConfigured || !col) return;
+  try {
+    const compressed = qrCode ? await compressBase64QR(qrCode) : '';
+    await setDoc(doc(col, `payment_${provider}`), { qrCode: compressed, upiId });
+    console.log(`[saveProviderPaymentConfig] saved ${provider}, size=${compressed.length}`);
+  } catch (e) {
+    console.error(`[saveProviderPaymentConfig] failed for ${provider}:`, e);
+  }
+}
+
+export async function saveProviderUPIId(provider: string, upiId: string): Promise<void> {
+  const col = getConfigCollection();
+  if (!isFirebaseConfigured || !col) return;
+  try {
+    await setDoc(doc(col, `payment_${provider}`), { upiId }, { merge: true });
+    console.log(`[saveProviderUPIId] saved ${provider} upiId=${upiId}`);
+  } catch (e) {
+    console.error(`[saveProviderUPIId] failed for ${provider}:`, e);
+  }
+}
+
+export async function fetchPaymentConfig(): Promise<PaymentConfig | null> {
+  const col = getConfigCollection();
+  if (!isFirebaseConfigured || !col) return null;
+  try {
+    const providers = ['phonepe', 'gpay', 'paytm'];
+    const snaps = await Promise.all(providers.map((p) => getDoc(doc(col, `payment_${p}`))));
+    const qrCodes: Record<string, string> = {};
+    const upiIds: Record<string, string> = {};
+    snaps.forEach((snap, i) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        if (data.qrCode) qrCodes[providers[i]] = data.qrCode;
+        if (data.upiId) upiIds[providers[i]] = data.upiId;
+      }
+    });
+    console.log('[fetchPaymentConfig] loaded providers:', Object.keys(qrCodes));
+    return { qrCodes, upiIds };
+  } catch (e) {
+    console.error('[fetchPaymentConfig] failed:', e);
+    return null;
   }
 }
