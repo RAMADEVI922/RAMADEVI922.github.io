@@ -6,8 +6,9 @@ import {
   type FirebaseOrder, type FirebaseNotification,
 } from '@/lib/firebaseService';
 import { sendBillEmail } from '@/lib/emailService';
+import { computePriority } from '@/lib/aiPriority';
 import { Button } from '@/components/ui/button';
-import { Check, Clock, Bell, Receipt, UtensilsCrossed, RefreshCw, LogOut, ChefHat, Mail, Loader2, ShoppingBag, CheckCircle2, Utensils, UserCheck, UserX } from 'lucide-react';
+import { Check, Clock, Bell, Receipt, UtensilsCrossed, RefreshCw, LogOut, ChefHat, Mail, Loader2, ShoppingBag, CheckCircle2, Utensils, UserCheck, UserX, Zap, Star } from 'lucide-react';
 import { toast } from 'sonner';
 
 const STATUS_STEPS = [
@@ -52,20 +53,62 @@ export default function WaiterPanel() {
   // Track which served orders the waiter has dismissed ("Still at Table")
   const [snoozedOrders, setSnoozedOrders] = useState<Set<string>>(new Set());
 
-  const pendingOrders = orders
-    .filter((o) => o.status === 'pending')
-    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  const pendingOrders = (() => {
+    const pending = orders.filter((o) => o.status === 'pending');
+    const latestPerTable = new Map<string, typeof orders[0]>();
+    for (const o of pending) {
+      const existing = latestPerTable.get(o.tableId);
+      if (!existing || new Date(o.createdAt) > new Date(existing.createdAt)) {
+        latestPerTable.set(o.tableId, o);
+      }
+    }
+    // Sort by AI priority score (highest first)
+    return Array.from(latestPerTable.values())
+      .map((o) => ({ ...o, priority: computePriority(o) }))
+      .sort((a, b) => b.priority.score - a.priority.score);
+  })();
 
-  const myActiveOrders = orders.filter(
-    (o) => o.assignedWaiterId === waiterId && (o.status === 'confirmed' || o.status === 'preparing')
+  const myActiveOrders = (() => {
+    const active = orders.filter(
+      (o) => o.assignedWaiterId === waiterId && (o.status === 'confirmed' || o.status === 'preparing')
+    );
+    // Keep only the most recent per table
+    const latestPerTable = new Map<string, typeof orders[0]>();
+    for (const o of active) {
+      const existing = latestPerTable.get(o.tableId);
+      if (!existing || new Date(o.createdAt) > new Date(existing.createdAt)) {
+        latestPerTable.set(o.tableId, o);
+      }
+    }
+    return Array.from(latestPerTable.values());
+  })();
+
+  // Served orders assigned to this waiter — only the latest per table, max 2 hours old
+  const myServedOrders = (() => {
+    const TWO_HOURS = 2 * 60 * 60 * 1000;
+    const now = Date.now();
+    const served = orders.filter(
+      (o) =>
+        o.assignedWaiterId === waiterId &&
+        o.status === 'served' &&
+        !snoozedOrders.has(o.id) &&
+        now - new Date(o.createdAt).getTime() < TWO_HOURS
+    );
+    // Keep only the most recent order per table
+    const latestPerTable = new Map<string, typeof orders[0]>();
+    for (const o of served) {
+      const existing = latestPerTable.get(o.tableId);
+      if (!existing || new Date(o.createdAt) > new Date(existing.createdAt)) {
+        latestPerTable.set(o.tableId, o);
+      }
+    }
+    return Array.from(latestPerTable.values());
+  })();
+
+  // Only show actionable alerts — NOT status update notifications (those are for customers)
+  const unreadNotifications = notifications.filter(
+    (n) => !n.read && (n.type === 'call_waiter' || n.type === 'request_bill' || n.type === 'extra_order' || n.type === 'cash_payment' || n.type === 'feedback')
   );
-
-  // Served orders assigned to this waiter that haven't been vacated yet
-  const myServedOrders = orders.filter(
-    (o) => o.assignedWaiterId === waiterId && o.status === 'served' && !snoozedOrders.has(o.id)
-  );
-
-  const unreadNotifications = notifications.filter((n) => !n.read);
   const prevCount = useRef(unreadNotifications.length);
 
   useEffect(() => {
@@ -86,8 +129,20 @@ export default function WaiterPanel() {
     setRefreshing(true);
     try {
       const [fbOrders, fbNotifs] = await Promise.all([fetchOrders(), fetchNotifications()]);
-      setOrders(fbOrders.map((o: FirebaseOrder) => ({ ...o, createdAt: new Date(o.createdAt) })));
+      const mappedOrders = fbOrders.map((o: FirebaseOrder) => ({ ...o, createdAt: new Date(o.createdAt) }));
+      setOrders(mappedOrders);
       setNotifications(fbNotifs.map((n: FirebaseNotification) => ({ ...n, createdAt: new Date(n.createdAt) })));
+
+      // Auto-snooze served orders older than 2 hours so they don't clutter the panel
+      const TWO_HOURS = 2 * 60 * 60 * 1000;
+      const now = Date.now();
+      const staleServedIds = mappedOrders
+        .filter((o) => o.status === 'served' && now - new Date(o.createdAt).getTime() >= TWO_HOURS)
+        .map((o) => o.id);
+      if (staleServedIds.length > 0) {
+        setSnoozedOrders((prev) => new Set([...prev, ...staleServedIds]));
+      }
+
       setLastRefreshed(new Date());
     } catch (e: any) {
       toast.error(`Refresh failed: ${e?.message}`);
@@ -308,13 +363,15 @@ export default function WaiterPanel() {
                 <div key={n.id} className={`flex items-center justify-between p-3 rounded-xl border ${
                   n.type === 'call_waiter' ? 'bg-yellow-50 border-yellow-200' :
                   n.type === 'request_bill' ? 'bg-blue-50 border-blue-200' :
+                  n.type === 'feedback' ? 'bg-purple-50 border-purple-200' :
                   'bg-background border-border'
                 }`}>
                   <div className="flex items-start gap-3 flex-1 min-w-0">
                     {n.type === 'call_waiter' ? <Bell className="h-4 w-4 text-yellow-600 shrink-0 mt-0.5" /> :
                      n.type === 'request_bill' ? <Receipt className="h-4 w-4 text-blue-600 shrink-0 mt-0.5" /> :
+                     n.type === 'feedback' ? <Star className="h-4 w-4 text-purple-600 shrink-0 mt-0.5" /> :
                      <UtensilsCrossed className="h-4 w-4 shrink-0 mt-0.5" />}
-                    <span className="text-sm font-medium">{n.message}</span>
+                    <span className="text-sm font-medium whitespace-pre-line">{n.message}</span>
                   </div>
                   <Button variant="ghost" size="sm" className="shrink-0 ml-2" onClick={() => markNotificationRead(n.id)}>Dismiss</Button>
                 </div>
@@ -556,23 +613,31 @@ export default function WaiterPanel() {
 
         {/* Pending Queue */}
         <div>
-          <h2 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-3">
-            Pending Orders ({pendingOrders.length})
+          <h2 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
+            <Zap className="h-4 w-4 text-orange-500" />
+            Pending Orders — AI Prioritized ({pendingOrders.length})
           </h2>
           {pendingOrders.length === 0 ? (
             <p className="text-sm text-muted-foreground py-2">No pending orders.</p>
           ) : (
             <div className="space-y-3">
               {pendingOrders.map((order, idx) => (
-                <div key={order.id} className={`border rounded-2xl p-4 ${idx === 0 ? 'border-red-300 bg-red-50/40' : 'border-border'}`}>
+                <div key={order.id} className={`border rounded-2xl p-4 ${
+                  order.priority.label === 'URGENT' ? 'border-red-400 bg-red-50/60' :
+                  order.priority.label === 'HIGH' ? 'border-orange-300 bg-orange-50/40' :
+                  'border-border'
+                }`}>
                   <div className="flex justify-between items-start mb-3">
-                    <div className="flex items-center gap-2">
-                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${idx === 0 ? 'bg-red-500 text-white' : 'bg-muted text-muted-foreground'}`}>
-                        #{idx + 1}{idx === 0 ? ' NEXT' : ''}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${order.priority.color}`}>
+                        {order.priority.label}
                       </span>
                       <p className="font-bold">Table {order.tableId}</p>
+                      {order.priority.reasons.length > 0 && (
+                        <span className="text-xs text-muted-foreground">· {order.priority.reasons[0]}</span>
+                      )}
                     </div>
-                    <div className="flex items-center gap-1 text-xs text-orange-500">
+                    <div className="flex items-center gap-1 text-xs text-orange-500 shrink-0">
                       <Clock className="h-3.5 w-3.5" />
                       {Math.floor((Date.now() - new Date(order.createdAt).getTime()) / 60000)}m ago
                     </div>

@@ -39,6 +39,7 @@ export interface Order {
   paymentStatus?: 'pending' | 'paid'; // online payment confirmation
   assignedWaiterId?: string;
   customerEmail?: string;
+  splitCount?: number; // bill splitting: number of people
 }
 
 export interface Table {
@@ -58,7 +59,7 @@ export interface Waiter {
 export interface Notification {
   id: string;
   tableId: string;
-  type: 'order' | 'call_waiter' | 'request_bill' | 'extra_order' | 'payment_request' | 'cash_payment';
+  type: 'order' | 'call_waiter' | 'request_bill' | 'extra_order' | 'payment_request' | 'cash_payment' | 'feedback';
   message: string;
   read: boolean;
   createdAt: Date;
@@ -187,6 +188,7 @@ interface RestaurantStore {
   getActiveOrderForTable: (tableId: string) => Order | undefined;
   updateOrderPaymentMethod: (orderId: string, method: 'cash' | 'online') => void;
   confirmOnlinePayment: (orderId: string) => void;
+  setSplitCount: (orderId: string, count: number) => void;
 
   tables: Table[];
   addTable: (number: number) => void;
@@ -303,7 +305,20 @@ export const useRestaurantStore = create<RestaurantStore>()(
       cartTotal: () => get().cart.reduce((sum, item) => sum + item.price * item.quantity, 0),
 
       orders: [],
-      setOrders: (orders) => set({ orders }),
+      setOrders: (orders) => {
+        // Derive table occupancy from live orders — any non-served order = occupied
+        const occupiedTableIds = new Set(
+          orders.filter((o) => o.status !== 'served').map((o) => o.tableId)
+        );
+        set((state) => ({
+          orders,
+          tables: state.tables.map((t) =>
+            occupiedTableIds.has(t.id)
+              ? { ...t, status: 'occupied' }
+              : { ...t, status: 'available' }
+          ),
+        }));
+      },
       addItemsToOrder: (tableId, items) => {
         set((state) => {
           const existing = state.orders.find((o) => o.tableId === tableId && o.status !== 'served');
@@ -348,7 +363,11 @@ export const useRestaurantStore = create<RestaurantStore>()(
           createdAt: new Date(),
           readyAt: Date.now() + totalItems * 15 * 60 * 1000,
         };
-        set((state) => ({ orders: [order, ...state.orders] }));
+        set((state) => ({
+          orders: [order, ...state.orders],
+          // Mark table as occupied when order is placed
+          tables: state.tables.map((t) => t.id === tableId ? { ...t, status: 'occupied' } : t),
+        }));
         upsertOrder({ ...order, createdAt: order.createdAt.getTime() } as FirebaseOrder)
           .catch((e) => console.error('[placeOrder] FIRESTORE WRITE FAILED:', e));
         addNotification({ tableId, type: 'order', message: `New order from Table ${tableId}` });
@@ -409,6 +428,8 @@ export const useRestaurantStore = create<RestaurantStore>()(
             .catch((e) => console.warn('Failed to sync payment confirmation:', e));
         }
       },
+      setSplitCount: (orderId, count) =>
+        set((state) => ({ orders: state.orders.map((o) => o.id === orderId ? { ...o, splitCount: count } : o) })),
 
       tables: sampleTables,
       addTable: (number) => set((state) => ({

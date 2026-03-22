@@ -14,6 +14,8 @@ import WaiterPanel from "./pages/WaiterPanel.tsx";
 import WaiterLogin from "./pages/WaiterLogin.tsx";
 import OrderSummaryPage from "./pages/OrderSummaryPage.tsx";
 import OrderTrackingPage from "./pages/OrderTrackingPage.tsx";
+import KitchenDashboard from "./pages/KitchenDashboard.tsx";
+import FeedbackPage from "./pages/FeedbackPage.tsx";
 import ProtectedRoute from "./components/ProtectedRoute.tsx";
 import { useFirebaseSync } from "./lib/useFirebaseSync";
 import { useOrdersSync } from "./lib/useOrdersSync";
@@ -47,6 +49,8 @@ const App = () => {
         />
         <Route path="/waiter-login" element={<WaiterLogin />} />
         <Route path="/waiter" element={<WaiterPanel />} />
+        <Route path="/kitchen" element={<KitchenDashboard />} />
+        <Route path="/feedback/:tableId" element={<FeedbackPage />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
     </TooltipProvider>

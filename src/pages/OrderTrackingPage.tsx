@@ -4,7 +4,8 @@ import { useRestaurantStore } from '@/store/restaurantStore';
 import { fetchOrders, fetchNotifications, upsertNotification } from '@/lib/firebaseService';
 import type { FirebaseOrder, FirebaseNotification } from '@/lib/firebaseService';
 import { formatOrderTime } from '@/lib/orderUtils';
-import { CheckCircle2, Clock, ChefHat, Utensils, ShoppingBag, RefreshCw, CreditCard, Banknote, ExternalLink } from 'lucide-react';
+import { predictWaitTime } from '@/lib/aiPriority';
+import { CheckCircle2, Clock, ChefHat, Utensils, ShoppingBag, RefreshCw, CreditCard, Banknote, ExternalLink, Users, Star } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 
@@ -46,26 +47,28 @@ function buildDeepLink(provider: string, upiId: string, amount: number): string 
 
 // ── Payment Modal ─────────────────────────────────────────────────────────────
 interface PaymentModalProps {
-  order: { id: string; tableId: string; items: Array<{ id: string; name: string; price: number; quantity: number }>; total: number; paymentMethod?: string };
+  order: { id: string; tableId: string; items: Array<{ id: string; name: string; price: number; quantity: number }>; total: number; paymentMethod?: string; splitCount?: number };
   onCash: () => void;
   onOnlinePaid: () => void;
 }
 
 function PaymentModal({ order, onCash, onOnlinePaid }: PaymentModalProps) {
-  const { paymentQRCodes, paymentUPIIds, updateOrderPaymentMethod, confirmOnlinePayment } = useRestaurantStore();
-  const [mode, setMode] = useState<'choose' | 'online' | 'cash_done'>('choose');
+  const { paymentQRCodes, paymentUPIIds, updateOrderPaymentMethod, confirmOnlinePayment, setSplitCount } = useRestaurantStore();
+  const [mode, setMode] = useState<'choose' | 'online' | 'cash_done' | 'split'>('choose');
   const [activeProvider, setActiveProvider] = useState(PROVIDERS[0].id);
+  const [splitPeople, setSplitPeople] = useState(order.splitCount || 2);
 
   const activeProviderInfo = PROVIDERS.find((p) => p.id === activeProvider)!;
   const activeUPIId = paymentUPIIds[activeProvider] || ENV_UPI[activeProvider] || '';
   const hasQR = !!paymentQRCodes[activeProvider];
+  const perPerson = Math.ceil(order.total / splitPeople);
 
   const handleCash = async () => {
     updateOrderPaymentMethod(order.id, 'cash');
     setMode('cash_done');
-    // Build detailed cash notification for waiter
     const itemLines = order.items.map((i) => `${i.name} ×${i.quantity} — ₹${(i.price * i.quantity).toLocaleString('en-IN')}`).join('\n');
-    const msg = `💵 CASH PAYMENT — Table ${order.tableId}\n${itemLines}\nTotal: ₹${order.total.toLocaleString('en-IN')}\nPlease collect cash from the customer.`;
+    const splitNote = splitPeople > 1 ? `\nSplit: ${splitPeople} people × ₹${perPerson.toLocaleString('en-IN')}` : '';
+    const msg = `💵 CASH PAYMENT — Table ${order.tableId}\n${itemLines}\nTotal: ₹${order.total.toLocaleString('en-IN')}${splitNote}\nPlease collect cash from the customer.`;
     try {
       await upsertNotification({
         id: `N${order.tableId}_cash_${Date.now()}`,
@@ -110,12 +113,32 @@ function PaymentModal({ order, onCash, onOnlinePaid }: PaymentModalProps) {
               <span>Total</span>
               <span>₹{order.total.toLocaleString('en-IN')}</span>
             </div>
+            {splitPeople > 1 && (
+              <div className="flex justify-between text-sm text-primary font-semibold pt-1">
+                <span>Per person ({splitPeople} people)</span>
+                <span>₹{perPerson.toLocaleString('en-IN')}</span>
+              </div>
+            )}
           </div>
         </div>
 
         <div className="p-5 space-y-4">
           {mode === 'choose' && (
             <>
+              {/* Bill split toggle */}
+              <button
+                onClick={() => setMode('split')}
+                className="w-full flex items-center justify-between p-3 rounded-xl border border-border hover:bg-muted/30 transition-all"
+              >
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <Users className="h-4 w-4 text-primary" />
+                  Split Bill
+                </div>
+                <span className="text-xs text-muted-foreground">
+                  {splitPeople > 1 ? `${splitPeople} people · ₹${perPerson}/each` : 'Tap to split'}
+                </span>
+              </button>
+
               <p className="text-sm font-semibold text-center text-muted-foreground">How would you like to pay?</p>
               <div className="grid grid-cols-2 gap-3">
                 <button
@@ -138,17 +161,61 @@ function PaymentModal({ order, onCash, onOnlinePaid }: PaymentModalProps) {
             </>
           )}
 
+          {/* Bill split screen */}
+          {mode === 'split' && (
+            <div className="space-y-4">
+              <button onClick={() => setMode('choose')} className="text-xs text-primary underline">← Back</button>
+              <p className="font-semibold text-center">Split Bill Between</p>
+              <div className="flex items-center justify-center gap-6">
+                <button
+                  onClick={() => setSplitPeople((p) => Math.max(1, p - 1))}
+                  className="h-10 w-10 rounded-full border-2 border-border text-xl font-bold hover:bg-muted/30 transition-all"
+                >−</button>
+                <div className="text-center">
+                  <p className="text-4xl font-bold">{splitPeople}</p>
+                  <p className="text-xs text-muted-foreground">people</p>
+                </div>
+                <button
+                  onClick={() => setSplitPeople((p) => Math.min(20, p + 1))}
+                  className="h-10 w-10 rounded-full border-2 border-border text-xl font-bold hover:bg-muted/30 transition-all"
+                >+</button>
+              </div>
+              <div className="bg-primary/5 rounded-xl p-4 text-center">
+                <p className="text-sm text-muted-foreground">Each person pays</p>
+                <p className="text-3xl font-bold text-primary">₹{perPerson.toLocaleString('en-IN')}</p>
+                <p className="text-xs text-muted-foreground mt-1">Total ₹{order.total.toLocaleString('en-IN')} ÷ {splitPeople}</p>
+              </div>
+              <Button
+                onClick={() => { setSplitCount(order.id, splitPeople); setMode('choose'); }}
+                className="w-full"
+              >
+                Confirm Split
+              </Button>
+            </div>
+          )}
+
           {mode === 'cash_done' && (
             <div className="text-center py-4 space-y-3">
               <div className="text-4xl">✅</div>
               <p className="font-bold text-lg">Waiter Notified</p>
-              <p className="text-muted-foreground text-sm">Your waiter will come to collect the cash payment of ₹{order.total.toLocaleString('en-IN')}.</p>
+              <p className="text-muted-foreground text-sm">
+                Your waiter will collect{' '}
+                {splitPeople > 1
+                  ? `₹${perPerson.toLocaleString('en-IN')} from each of ${splitPeople} people`
+                  : `₹${order.total.toLocaleString('en-IN')}`}.
+              </p>
             </div>
           )}
 
           {mode === 'online' && (
             <div className="space-y-4">
               <button onClick={() => setMode('choose')} className="text-xs text-primary underline">← Back</button>
+              {splitPeople > 1 && (
+                <div className="bg-primary/5 rounded-xl p-3 text-center text-sm">
+                  <span className="font-semibold text-primary">Split: </span>
+                  {splitPeople} people · ₹{perPerson.toLocaleString('en-IN')} each
+                </div>
+              )}
               {/* Provider tabs */}
               <div className="flex gap-2">
                 {PROVIDERS.map((p) => (
@@ -179,11 +246,11 @@ function PaymentModal({ order, onCash, onOnlinePaid }: PaymentModalProps) {
                 )}
                 {activeUPIId ? (
                   <a
-                    href={buildDeepLink(activeProvider, activeUPIId, order.total)}
+                    href={buildDeepLink(activeProvider, activeUPIId, splitPeople > 1 ? perPerson : order.total)}
                     className={`w-full flex items-center justify-center gap-2 py-4 px-4 rounded-xl font-bold text-base transition-all shadow-md ${activeProviderInfo.btnColor}`}
                   >
                     <ExternalLink className="h-5 w-5 shrink-0" />
-                    Pay ₹{order.total.toLocaleString('en-IN')} via {activeProviderInfo.label}
+                    Pay ₹{(splitPeople > 1 ? perPerson : order.total).toLocaleString('en-IN')} via {activeProviderInfo.label}
                   </a>
                 ) : (
                   <p className="text-sm text-muted-foreground text-center py-2">Payment not configured. Please pay cash.</p>
@@ -210,20 +277,19 @@ function PaymentModal({ order, onCash, onOnlinePaid }: PaymentModalProps) {
 export default function OrderTrackingPage() {
   const { tableId } = useParams<{ tableId: string }>();
   const navigate = useNavigate();
-  const { orders, setOrders, confirmOnlinePayment, updateOrderPaymentMethod } = useRestaurantStore();
+  const { orders, setOrders, confirmOnlinePayment, updateOrderPaymentMethod, setSplitCount } = useRestaurantStore();
   const [refreshing, setRefreshing] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [paymentDone, setPaymentDone] = useState(false);
   const prevStatusRef = useRef<OrderStatus | null>(null);
   const seenPaymentRequestRef = useRef(false);
 
-  const order = orders.find(
-    (o) => o.tableId === tableId && o.status !== 'served'
-  ) ?? orders.filter((o) => o.tableId === tableId).sort(
-    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-  )[0] ?? null;
+  // Always track the latest order for this table (including served ones)
+  const order = orders
+    .filter((o) => o.tableId === tableId)
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0] ?? null;
 
-  // Poll Firestore every 30s
+  // Poll Firestore every 10s
   useEffect(() => {
     let cancelled = false;
 
@@ -242,18 +308,33 @@ export default function OrderTrackingPage() {
         const localOnly = store.orders.filter((o) => !firestoreIds.has(o.id));
         setOrders([...updated, ...localOnly] as any);
 
-        // Check for payment_request notification for this table
+        // Only trigger payment modal if:
+        // 1. Not already seen/done
+        // 2. There's a payment_request notification for this table
+        // 3. The notification was created AFTER the order was placed
+        // 4. The order status is 'served' (waiter has actually marked it served)
         if (!seenPaymentRequestRef.current && !paymentDone) {
-          const payReq = (rawNotifs as FirebaseNotification[]).find(
-            (n) => n.tableId === tableId && n.type === 'payment_request' && !n.read
-          );
-          if (payReq) {
-            seenPaymentRequestRef.current = true;
-            setShowPaymentModal(true);
-            // Mark it read so it doesn't re-trigger
-            try {
-              await upsertNotification({ ...payReq, read: true });
-            } catch (_) {}
+          const allTableOrders = updated.filter((o: any) => o.tableId === tableId);
+          const latestOrder = allTableOrders.sort(
+            (a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+          )[0];
+
+          if (latestOrder && latestOrder.status === 'served') {
+            const orderTime = new Date(latestOrder.createdAt).getTime();
+            const payReq = (rawNotifs as FirebaseNotification[]).find(
+              (n) =>
+                n.tableId === tableId &&
+                n.type === 'payment_request' &&
+                !n.read &&
+                n.createdAt > orderTime // must be newer than the order
+            );
+            if (payReq) {
+              seenPaymentRequestRef.current = true;
+              setShowPaymentModal(true);
+              try {
+                await upsertNotification({ ...payReq, read: true });
+              } catch (_) {}
+            }
           }
         }
       } catch (e) {
@@ -262,11 +343,35 @@ export default function OrderTrackingPage() {
     };
 
     poll();
-    const interval = setInterval(poll, 30_000);
+    const interval = setInterval(poll, 10_000);
     return () => { cancelled = true; clearInterval(interval); };
   }, [setOrders, tableId, paymentDone]);
 
-  // Toast when status changes
+  // Trap native back swipe/button while payment modal is open
+  useEffect(() => {
+    if (!showPaymentModal) return;
+    // Push many dummy history entries so back gesture has many levels to consume
+    for (let i = 0; i < 10; i++) {
+      window.history.pushState({ paymentLock: true }, '');
+    }
+    const onPop = (e: PopStateEvent) => {
+      // Always re-push to prevent navigation
+      window.history.pushState({ paymentLock: true }, '');
+      e.stopImmediatePropagation();
+    };
+    // Block beforeunload (tab close / refresh)
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = 'Please complete your payment before leaving.';
+      return e.returnValue;
+    };
+    window.addEventListener('popstate', onPop);
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => {
+      window.removeEventListener('popstate', onPop);
+      window.removeEventListener('beforeunload', onBeforeUnload);
+    };
+  }, [showPaymentModal]);
   useEffect(() => {
     if (!order) return;
     const s = order.status as OrderStatus;
@@ -455,6 +560,45 @@ export default function OrderTrackingPage() {
           </Button>
         )}
 
+        {/* Wait time prediction */}
+        {!isServed && (
+          (() => {
+            const activeKitchenOrders = orders.filter(
+              (o) => o.status === 'confirmed' || o.status === 'preparing'
+            ).length;
+            const itemCount = order.items.reduce((s, i) => s + i.quantity, 0);
+            const wt = predictWaitTime(itemCount, activeKitchenOrders, order.status);
+            return (
+              <div className="bg-white rounded-2xl border border-border p-4 shadow-sm flex items-center gap-4">
+                <div className="h-12 w-12 rounded-xl bg-orange-100 flex items-center justify-center shrink-0">
+                  <Clock className="h-6 w-6 text-orange-500" />
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Estimated Wait</p>
+                  <p className="text-xl font-bold text-orange-500">{wt.label}</p>
+                  <p className="text-xs text-muted-foreground">Based on {activeKitchenOrders} active orders in kitchen</p>
+                </div>
+              </div>
+            );
+          })()
+        )}
+
+        {/* Feedback prompt after payment done */}
+        {paymentDone && (
+          <div className="bg-gradient-to-r from-orange-50 to-yellow-50 rounded-2xl border border-orange-200 p-5 text-center space-y-3">
+            <div className="text-3xl">🌟</div>
+            <p className="font-bold">Enjoyed your meal?</p>
+            <p className="text-sm text-muted-foreground">Share your experience — it takes 30 seconds!</p>
+            <Button
+              onClick={() => navigate(`/feedback/${tableId}`)}
+              className="w-full bg-orange-500 hover:bg-orange-600 text-white gap-2"
+            >
+              <Star className="h-4 w-4" />
+              Leave Feedback
+            </Button>
+          </div>
+        )}
+
         {/* Refresh + actions */}
         <div className="space-y-3">
           <button
@@ -465,8 +609,8 @@ export default function OrderTrackingPage() {
             <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
             {refreshing ? 'Refreshing...' : 'Refresh Status'}
           </button>
-          <p className="text-center text-xs text-muted-foreground">Auto-refreshes every 30 seconds</p>
-          <Button variant="outline" className="w-full" onClick={() => navigate(`/order-summary/${tableId}`)}>
+          <p className="text-center text-xs text-muted-foreground">Auto-refreshes every 10 seconds</p>
+          <Button variant="outline" className="w-full" disabled={showPaymentModal} onClick={() => { if (!showPaymentModal) navigate(`/order-summary/${tableId}`); }}>
             View Order Summary & Payment
           </Button>
         </div>
