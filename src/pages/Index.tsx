@@ -99,16 +99,6 @@ export default function Index() {
                 Waiter Panel
               </Button>
             </Link>
-            <Link to="/kitchen">
-              <Button
-                variant="outline"
-                size="lg"
-                className="gap-2 w-full sm:w-auto bg-white/10 border-white/20 text-white hover:bg-white/20 backdrop-blur-sm"
-              >
-                <UtensilsCrossed className="h-4 w-4" />
-                Kitchen
-              </Button>
-            </Link>
           </div>
 
           {/* Feature cards */}

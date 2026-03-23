@@ -2,26 +2,45 @@ import { useEffect, useRef, useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useRestaurantStore } from '@/store/restaurantStore';
 import {
-  fetchOrders, fetchNotifications, upsertNotification,
+  fetchOrders, fetchNotifications, upsertNotification, upsertOrder,
   type FirebaseOrder, type FirebaseNotification,
 } from '@/lib/firebaseService';
 import { sendBillEmail } from '@/lib/emailService';
 import { computePriority } from '@/lib/aiPriority';
 import { Button } from '@/components/ui/button';
-import { Check, Clock, Bell, Receipt, UtensilsCrossed, RefreshCw, LogOut, ChefHat, Mail, Loader2, ShoppingBag, CheckCircle2, Utensils, UserCheck, UserX, Zap, Star } from 'lucide-react';
+import {
+  Check, Clock, Bell, Receipt, UtensilsCrossed, RefreshCw, LogOut,
+  ChefHat, Mail, Loader2, ShoppingBag, CheckCircle2, Utensils,
+  UserCheck, UserX, Zap, Star, Flame, LayoutGrid, ChevronDown, ChevronUp,
+} from 'lucide-react';
 import { toast } from 'sonner';
 
 const STATUS_STEPS = [
-  { key: 'pending',   label: 'Order Placed',   sub: 'Waiting for confirmation',    icon: <ShoppingBag className="h-4 w-4" /> },
-  { key: 'confirmed', label: 'Confirmed',       sub: 'Kitchen accepted',            icon: <CheckCircle2 className="h-4 w-4" /> },
-  { key: 'preparing', label: 'Preparing',       sub: 'Chef is cooking',             icon: <ChefHat className="h-4 w-4" /> },
-  { key: 'served',    label: 'Ready to Serve',  sub: 'Food on the way',             icon: <Utensils className="h-4 w-4" /> },
+  { key: 'pending',   label: 'Order Placed',    sub: 'Waiting for confirmation',   icon: <ShoppingBag className="h-4 w-4" /> },
+  { key: 'confirmed', label: 'Confirmed',        sub: 'Kitchen accepted',           icon: <CheckCircle2 className="h-4 w-4" /> },
+  { key: 'preparing', label: 'Preparing',        sub: 'Chef is cooking',            icon: <ChefHat className="h-4 w-4" /> },
+  { key: 'served',    label: 'Ready to Serve',   sub: 'Food is ready — deliver it', icon: <Utensils className="h-4 w-4" /> },
+  { key: 'delivered', label: 'Delivered',        sub: 'Tap to complete & free table', icon: <Check className="h-4 w-4" /> },
 ] as const;
 
-type OrderStatus = 'pending' | 'confirmed' | 'preparing' | 'served';
+type OrderStatus = 'pending' | 'confirmed' | 'preparing' | 'served' | 'delivered';
 
-function stepIndex(status: OrderStatus) {
+function stepIndex(status: string) {
   return STATUS_STEPS.findIndex((s) => s.key === status);
+}
+
+// ── Inline Kitchen Kanban ─────────────────────────────────────────────────────
+type ColStatus = 'pending' | 'confirmed' | 'preparing' | 'served';
+const KITCHEN_COLS: { key: ColStatus; label: string; icon: React.ReactNode; bg: string; border: string }[] = [
+  { key: 'pending',   label: 'New',       icon: <ShoppingBag className="h-3.5 w-3.5" />,  bg: 'bg-red-50',    border: 'border-red-200' },
+  { key: 'confirmed', label: 'Confirmed', icon: <CheckCircle2 className="h-3.5 w-3.5" />, bg: 'bg-blue-50',   border: 'border-blue-200' },
+  { key: 'preparing', label: 'Cooking',   icon: <Flame className="h-3.5 w-3.5" />,        bg: 'bg-orange-50', border: 'border-orange-200' },
+  { key: 'served',    label: 'Ready',     icon: <Utensils className="h-3.5 w-3.5" />,     bg: 'bg-green-50',  border: 'border-green-200' },
+];
+
+function elapsedMins(createdAt: Date | string) {
+  const m = Math.floor((Date.now() - new Date(createdAt).getTime()) / 60000);
+  return m < 1 ? 'just now' : `${m}m ago`;
 }
 
 function useWaiterGuard() {
@@ -50,11 +69,11 @@ export default function WaiterPanel() {
   const [emailInputs, setEmailInputs] = useState<Record<string, string>>({});
   const [sendingEmail, setSendingEmail] = useState<string | null>(null);
   const [emailSent, setEmailSent] = useState<Record<string, boolean>>({});
-  // Track which served orders the waiter has dismissed ("Still at Table")
   const [snoozedOrders, setSnoozedOrders] = useState<Set<string>>(new Set());
+  const [kitchenOpen, setKitchenOpen] = useState(false);
 
   const pendingOrders = (() => {
-    const pending = orders.filter((o) => o.status === 'pending');
+    const pending = orders.filter((o) => o.status === 'pending' && !snoozedOrders.has(o.id));
     const latestPerTable = new Map<string, typeof orders[0]>();
     for (const o of pending) {
       const existing = latestPerTable.get(o.tableId);
@@ -70,9 +89,10 @@ export default function WaiterPanel() {
 
   const myActiveOrders = (() => {
     const active = orders.filter(
-      (o) => o.assignedWaiterId === waiterId && (o.status === 'confirmed' || o.status === 'preparing')
+      (o) => o.assignedWaiterId === waiterId &&
+        (o.status === 'confirmed' || o.status === 'preparing' || o.status === 'served') &&
+        !snoozedOrders.has(o.id)
     );
-    // Keep only the most recent per table
     const latestPerTable = new Map<string, typeof orders[0]>();
     for (const o of active) {
       const existing = latestPerTable.get(o.tableId);
@@ -83,20 +103,19 @@ export default function WaiterPanel() {
     return Array.from(latestPerTable.values());
   })();
 
-  // Served orders assigned to this waiter — only the latest per table, max 2 hours old
-  const myServedOrders = (() => {
+  // Delivered orders — waiter needs to confirm vacate
+  const myDeliveredOrders = (() => {
     const TWO_HOURS = 2 * 60 * 60 * 1000;
     const now = Date.now();
-    const served = orders.filter(
+    const delivered = orders.filter(
       (o) =>
         o.assignedWaiterId === waiterId &&
-        o.status === 'served' &&
+        o.status === 'delivered' &&
         !snoozedOrders.has(o.id) &&
         now - new Date(o.createdAt).getTime() < TWO_HOURS
     );
-    // Keep only the most recent order per table
     const latestPerTable = new Map<string, typeof orders[0]>();
-    for (const o of served) {
+    for (const o of delivered) {
       const existing = latestPerTable.get(o.tableId);
       if (!existing || new Date(o.createdAt) > new Date(existing.createdAt)) {
         latestPerTable.set(o.tableId, o);
@@ -129,18 +148,23 @@ export default function WaiterPanel() {
     setRefreshing(true);
     try {
       const [fbOrders, fbNotifs] = await Promise.all([fetchOrders(), fetchNotifications()]);
-      const mappedOrders = fbOrders.map((o: FirebaseOrder) => ({ ...o, createdAt: new Date(o.createdAt) }));
+      const SIX_HOURS = 6 * 60 * 60 * 1000;
+      const now = Date.now();
+
+      // Only keep orders from the last 6 hours — prevents old history from cluttering the panel
+      const recentOrders = fbOrders.filter(
+        (o) => now - o.createdAt < SIX_HOURS
+      );
+      const mappedOrders = recentOrders.map((o: FirebaseOrder) => ({ ...o, createdAt: new Date(o.createdAt) }));
       setOrders(mappedOrders);
       setNotifications(fbNotifs.map((n: FirebaseNotification) => ({ ...n, createdAt: new Date(n.createdAt) })));
 
-      // Auto-snooze served orders older than 2 hours so they don't clutter the panel
-      const TWO_HOURS = 2 * 60 * 60 * 1000;
-      const now = Date.now();
-      const staleServedIds = mappedOrders
-        .filter((o) => o.status === 'served' && now - new Date(o.createdAt).getTime() >= TWO_HOURS)
+      // Auto-snooze any delivered or served orders so they never reappear in active views
+      const doneIds = mappedOrders
+        .filter((o) => o.status === 'served' || o.status === 'delivered')
         .map((o) => o.id);
-      if (staleServedIds.length > 0) {
-        setSnoozedOrders((prev) => new Set([...prev, ...staleServedIds]));
+      if (doneIds.length > 0) {
+        setSnoozedOrders((prev) => new Set([...prev, ...doneIds]));
       }
 
       setLastRefreshed(new Date());
@@ -177,15 +201,45 @@ export default function WaiterPanel() {
   };
 
   const handleServed = async (orderId: string, tableId: string) => {
+    // "Ready to Serve" — food is ready in kitchen, waiter needs to physically deliver it
     updateOrderStatus(orderId, 'served');
-    toast.success(`Table ${tableId} — food served`);
-    // Notify customer: food served + trigger payment modal on their screen
+    toast.success(`Table ${tableId} — food ready, go deliver it!`);
     try {
       await upsertNotification({
         id: `N${tableId}_served_${Date.now()}`,
         tableId,
         type: 'order',
-        message: `🍽️ Your food has been served! Enjoy your meal.`,
+        message: `🍽️ Your food is ready! Waiter is bringing it to you.`,
+        read: false,
+        createdAt: Date.now(),
+      });
+    } catch (_) {}
+  };
+
+  const handleDelivered = async (orderId: string, tableId: string) => {
+    // Terminate the order immediately — free the table, remove from all views
+    const order = orders.find((o) => o.id === orderId);
+    vacateTable(tableId);
+    setSnoozedOrders((prev) => new Set([...prev, orderId]));
+
+    // Write 'delivered' to Firestore so it never comes back into active views on next poll
+    if (order) {
+      try {
+        await upsertOrder({
+          ...order,
+          status: 'delivered',
+          createdAt: new Date(order.createdAt).getTime(),
+        } as FirebaseOrder);
+      } catch (_) {}
+    }
+
+    // Trigger payment popup on customer screen
+    try {
+      await upsertNotification({
+        id: `N${tableId}_delivered_${Date.now()}`,
+        tableId,
+        type: 'order',
+        message: `✅ Your food has been served! Enjoy your meal.`,
         read: false,
         createdAt: Date.now(),
       });
@@ -195,14 +249,23 @@ export default function WaiterPanel() {
         type: 'payment_request',
         message: `💳 Please complete your payment.`,
         read: false,
-        createdAt: Date.now() + 1, // +1ms so it sorts after served notification
+        createdAt: Date.now() + 1,
       });
     } catch (_) {}
+
+    toast.success(`Table ${tableId} — order complete, table freed ✓`);
   };
 
   const handleVacate = async (orderId: string, tableId: string) => {
     vacateTable(tableId);
     setSnoozedOrders((prev) => new Set([...prev, orderId]));
+    // Write vacated status to Firestore so all devices see table as available
+    const order = orders.find((o) => o.id === orderId);
+    if (order) {
+      try {
+        await upsertOrder({ ...order, status: 'served', createdAt: new Date(order.createdAt).getTime() } as FirebaseOrder);
+      } catch (_) {}
+    }
     try {
       await upsertNotification({
         id: `N${tableId}_vacated_${Date.now()}`,
@@ -380,14 +443,14 @@ export default function WaiterPanel() {
           </div>
         )}
 
-        {/* Served — Awaiting Vacate */}
-        {myServedOrders.length > 0 && (
+        {/* Delivered — Awaiting Vacate */}
+        {myDeliveredOrders.length > 0 && (
           <div>
             <h2 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-3">
-              Served — Check Table ({myServedOrders.length})
+              Delivered — Check Table ({myDeliveredOrders.length})
             </h2>
             <div className="space-y-4">
-              {myServedOrders.map((order) => (
+              {myDeliveredOrders.map((order) => (
                 <div key={order.id} className="border border-green-300 bg-green-50/40 rounded-2xl p-4">
                   <div className="flex justify-between items-start mb-3">
                     <div>
@@ -395,7 +458,7 @@ export default function WaiterPanel() {
                       <p className="text-xs text-muted-foreground">{order.items.length} items · ₹{order.total.toLocaleString('en-IN')}</p>
                     </div>
                     <div className="flex flex-col items-end gap-1">
-                      <span className="text-xs px-2 py-1 rounded-full font-semibold bg-green-100 text-green-700">✓ Served</span>
+                      <span className="text-xs px-2 py-1 rounded-full font-semibold bg-green-100 text-green-700">✓ Delivered</span>
                       {order.paymentMethod === 'online' && (
                         <span className={`text-xs px-2 py-1 rounded-full font-semibold ${
                           order.paymentStatus === 'paid' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
@@ -409,7 +472,6 @@ export default function WaiterPanel() {
                     </div>
                   </div>
 
-                  {/* Order items */}
                   <div className="space-y-1 mb-4 text-sm bg-white rounded-xl border border-border p-3">
                     {order.items.map((item) => (
                       <div key={item.id} className="flex justify-between">
@@ -422,7 +484,6 @@ export default function WaiterPanel() {
                     </div>
                   </div>
 
-                  {/* Vacate question */}
                   <p className="text-sm font-medium text-center text-muted-foreground mb-3">
                     Has the customer left the table?
                   </p>
@@ -461,7 +522,7 @@ export default function WaiterPanel() {
               {myActiveOrders.map((order) => {
                 const currentStep = stepIndex(order.status as OrderStatus);
 
-                const handleStepClick = async (stepKey: OrderStatus) => {
+                const handleStepClick = async (stepKey: string) => {
                   const newIdx = stepIndex(stepKey);
                   if (newIdx <= currentStep) return;
                   if (newIdx !== currentStep + 1) return;
@@ -471,7 +532,13 @@ export default function WaiterPanel() {
                     return;
                   }
 
-                  updateOrderStatus(order.id, stepKey);
+                  // Tapping "Delivered" terminates the order immediately
+                  if (stepKey === 'delivered') {
+                    handleDelivered(order.id, order.tableId);
+                    return;
+                  }
+
+                  updateOrderStatus(order.id, stepKey as any);
                   toast.success(`Table ${order.tableId} → ${stepKey}`);
 
                   const msgs: Record<string, string> = {
@@ -559,6 +626,22 @@ export default function WaiterPanel() {
                     </div>
                   </div>
 
+                  {/* Confirm Delivery — appears when food is ready to physically hand over */}
+                  {order.status === 'served' && (
+                    <div className="mb-4 p-3 rounded-xl bg-green-50 border-2 border-green-400">
+                      <p className="text-sm font-semibold text-green-800 mb-2 text-center">
+                        🍽️ Food is ready — did you deliver it?
+                      </p>
+                      <Button
+                        className="w-full bg-green-600 hover:bg-green-700 text-white gap-2"
+                        onClick={() => handleDelivered(order.id, order.tableId)}
+                      >
+                        <Check className="h-4 w-4" />
+                        Confirm Delivery to Table
+                      </Button>
+                    </div>
+                  )}
+
                   {/* Items */}
                   <div className="space-y-1 mb-4 text-sm">
                     {order.items.map((item) => (
@@ -607,6 +690,96 @@ export default function WaiterPanel() {
                 </div>
                 );
               })}
+            </div>
+          )}
+        </div>
+
+        {/* ── Inline Kitchen Dashboard ── */}
+        <div className="rounded-2xl border border-gray-200 overflow-hidden">
+          <button
+            onClick={() => setKitchenOpen((v) => !v)}
+            className="w-full flex items-center justify-between px-4 py-3 bg-gray-900 text-white"
+          >
+            <div className="flex items-center gap-2">
+              <LayoutGrid className="h-4 w-4 text-orange-400" />
+              <span className="font-bold text-sm">Kitchen Dashboard</span>
+              <span className="text-xs text-gray-400 ml-1">
+                · {orders.filter((o) => !snoozedOrders.has(o.id) && (o.status === 'pending' || o.status === 'confirmed' || o.status === 'preparing')).length} active
+              </span>
+            </div>
+            {kitchenOpen ? <ChevronUp className="h-4 w-4 text-gray-400" /> : <ChevronDown className="h-4 w-4 text-gray-400" />}
+          </button>
+
+          {kitchenOpen && (
+            <div className="bg-gray-950 p-3">
+              <div className="grid grid-cols-2 gap-2">
+                {KITCHEN_COLS.map((col) => {
+                  const colOrders = orders
+                    .filter((o) =>
+                      o.status === col.key &&
+                      !snoozedOrders.has(o.id)
+                    )
+                    .map((o) => ({ ...o, priority: computePriority(o) }))
+                    .sort((a, b) => b.priority.score - a.priority.score);
+
+                  return (
+                    <div key={col.key} className="flex flex-col gap-1.5">
+                      <div className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg ${col.bg} ${col.border} border`}>
+                        <div className="flex items-center gap-1.5 text-gray-800">
+                          {col.icon}
+                          <span className="font-bold text-xs">{col.label}</span>
+                        </div>
+                        <span className="text-[10px] font-bold bg-white/60 px-1.5 py-0.5 rounded-full text-gray-700">
+                          {colOrders.length}
+                        </span>
+                      </div>
+                      {colOrders.length === 0 && (
+                        <p className="text-center text-gray-600 text-[10px] py-3">Empty</p>
+                      )}
+                      {colOrders.map((order) => (
+                        <div key={order.id} className="bg-gray-900 border border-gray-800 rounded-lg p-2 space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <p className="font-bold text-xs text-white">Table {order.tableId}</p>
+                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${order.priority.color}`}>
+                              {order.priority.label}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1 text-[10px] text-gray-400">
+                            <Clock className="h-2.5 w-2.5" />
+                            {elapsedMins(order.createdAt)}
+                          </div>
+                          <div className="space-y-0.5">
+                            {order.items.map((item) => (
+                              <div key={item.id} className="flex justify-between text-[10px] text-gray-300">
+                                <span className="truncate">{item.name}</span>
+                                <span className="text-gray-500 ml-1 shrink-0">×{item.quantity}</span>
+                              </div>
+                            ))}
+                          </div>
+                          {col.key !== 'served' && (
+                            <button
+                              onClick={() => {
+                                const next: Record<string, string> = {
+                                  pending: 'confirmed', confirmed: 'preparing', preparing: 'served',
+                                };
+                                const nextStatus = next[col.key];
+                                updateOrderStatus(order.id, nextStatus as any);
+                                // When marked Ready (served), snooze it from kitchen view
+                                if (nextStatus === 'served') {
+                                  setSnoozedOrders((prev) => new Set([...prev, order.id]));
+                                }
+                              }}
+                              className="w-full text-[10px] py-1 rounded bg-orange-500/20 hover:bg-orange-500/40 text-orange-300 font-semibold transition-all"
+                            >
+                              {col.key === 'pending' ? '✓ Confirm' : col.key === 'confirmed' ? '🔥 Cook' : '✅ Ready'}
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
         </div>

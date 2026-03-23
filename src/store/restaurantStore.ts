@@ -31,7 +31,7 @@ export interface Order {
   id: string;
   tableId: string;
   items: CartItem[];
-  status: 'pending' | 'confirmed' | 'preparing' | 'served';
+  status: 'pending' | 'confirmed' | 'preparing' | 'served' | 'delivered';
   total: number;
   createdAt: Date;
   readyAt: number;
@@ -306,9 +306,9 @@ export const useRestaurantStore = create<RestaurantStore>()(
 
       orders: [],
       setOrders: (orders) => {
-        // Derive table occupancy from live orders — any non-served order = occupied
+        // Derive table occupancy — any non-delivered, non-served order = occupied
         const occupiedTableIds = new Set(
-          orders.filter((o) => o.status !== 'served').map((o) => o.tableId)
+          orders.filter((o) => o.status !== 'served' && o.status !== 'delivered').map((o) => o.tableId)
         );
         set((state) => ({
           orders,

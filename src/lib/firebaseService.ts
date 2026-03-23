@@ -307,7 +307,7 @@ export interface FirebaseOrder {
     image?: string;
     quantity: number;
   }>;
-  status: 'pending' | 'confirmed' | 'preparing' | 'served';
+  status: 'pending' | 'confirmed' | 'preparing' | 'served' | 'delivered';
   total: number;
   createdAt: number;
   readyAt: number;
