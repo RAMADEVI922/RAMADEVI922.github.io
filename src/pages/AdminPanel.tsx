@@ -75,20 +75,18 @@ function Sidebar({ activeTab, setActiveTab }: { activeTab: AdminTab; setActiveTa
 function DashboardView() {
   const { orders, menuItems, waiters } = useRestaurantStore();
   const pendingOrders = orders.filter((o) => o.status === 'pending').length;
-  const totalRevenue = orders.reduce((sum, o) => sum + o.total, 0);
 
   const stats = [
     { label: 'Menu Items', value: menuItems.length },
     { label: 'Active Waiters', value: waiters.filter((w) => w.active).length },
     { label: 'Pending Orders', value: pendingOrders },
     { label: 'Total Orders', value: orders.length },
-    { label: 'Revenue', value: `₹${totalRevenue.toLocaleString('en-IN')}` },
   ];
 
   return (
     <div>
       <h2 className="text-2xl font-extrabold mb-6 text-foreground tracking-tight">Dashboard Overview</h2>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {stats.map((stat) => (
           <div key={stat.label} className="bg-card border border-border/50 rounded-2xl p-6 shadow-sm hover:shadow-md transition-shadow">
             <p className="text-sm font-semibold text-muted-foreground mb-2">{stat.label}</p>
