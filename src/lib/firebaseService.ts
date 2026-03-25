@@ -468,6 +468,49 @@ export async function updateOrderStatus(orderId: string, status: string): Promis
   }
 }
 
+// ── Waiters ───────────────────────────────────────────────────────────────────
+export interface FirebaseWaiter {
+  id: string;
+  name: string;
+  email: string;
+  active: boolean;
+  pin: string;
+}
+
+const getWaitersCollection = () => db ? collection(db, 'waiters') : null;
+
+export async function fetchWaiters(): Promise<FirebaseWaiter[]> {
+  const col = getWaitersCollection();
+  if (!isFirebaseConfigured || !col) return [];
+  try {
+    const snap = await getDocs(col);
+    return snap.docs.map((d) => d.data() as FirebaseWaiter);
+  } catch (e) {
+    console.warn('[fetchWaiters] failed:', e);
+    return [];
+  }
+}
+
+export async function upsertWaiter(waiter: FirebaseWaiter): Promise<void> {
+  const col = getWaitersCollection();
+  if (!isFirebaseConfigured || !col) return;
+  try {
+    await setDoc(doc(col, waiter.id), waiter);
+  } catch (e) {
+    console.warn('[upsertWaiter] failed:', e);
+  }
+}
+
+export async function deleteWaiterFromDb(id: string): Promise<void> {
+  const col = getWaitersCollection();
+  if (!isFirebaseConfigured || !col) return;
+  try {
+    await deleteDoc(doc(col, id));
+  } catch (e) {
+    console.warn('[deleteWaiterFromDb] failed:', e);
+  }
+}
+
 // ── Payment Config (QR codes + UPI IDs) ──────────────────────────────────────
 // Each provider stored as its own doc to avoid 1MB Firestore limit:
 //   config/payment_phonepe  { qrCode: base64, upiId: string }

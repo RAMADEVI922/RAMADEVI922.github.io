@@ -8,6 +8,8 @@ import {
   saveProviderPaymentConfig,
   saveProviderUPIId,
   fetchPaymentConfig,
+  upsertWaiter,
+  deleteWaiterFromDb,
   type FirebaseOrder,
   type FirebaseNotification,
 } from "@/lib/firebaseService";
@@ -196,6 +198,7 @@ interface RestaurantStore {
   vacateTable: (tableId: string) => void;
 
   waiters: Waiter[];
+  setWaiters: (waiters: Waiter[]) => void;
   addWaiter: (waiter: Omit<Waiter, 'id'>) => void;
   deleteWaiter: (id: string) => void;
   toggleWaiterStatus: (id: string) => void;
@@ -442,16 +445,30 @@ export const useRestaurantStore = create<RestaurantStore>()(
       })),
 
       waiters: sampleWaiters,
-      addWaiter: (waiter) => set((state) => ({
-        waiters: [...state.waiters, { ...waiter, id: `W${Date.now()}` }],
-      })),
-      deleteWaiter: (id) => set((state) => ({ waiters: state.waiters.filter((w) => w.id !== id) })),
-      toggleWaiterStatus: (id) => set((state) => ({
-        waiters: state.waiters.map((w) => w.id === id ? { ...w, active: !w.active } : w),
-      })),
-      updateWaiterPin: (id, pin) => set((state) => ({
-        waiters: state.waiters.map((w) => w.id === id ? { ...w, pin } : w),
-      })),
+      addWaiter: (waiter) => {
+        const newWaiter = { ...waiter, id: `W${Date.now()}` };
+        set((state) => ({ waiters: [...state.waiters, newWaiter] }));
+        upsertWaiter(newWaiter).catch((e) => console.warn('[addWaiter] sync failed:', e));
+      },
+      setWaiters: (waiters) => set({ waiters }),
+      deleteWaiter: (id) => {
+        set((state) => ({ waiters: state.waiters.filter((w) => w.id !== id) }));
+        deleteWaiterFromDb(id).catch((e) => console.warn('[deleteWaiter] sync failed:', e));
+      },
+      toggleWaiterStatus: (id) => {
+        set((state) => ({
+          waiters: state.waiters.map((w) => w.id === id ? { ...w, active: !w.active } : w),
+        }));
+        const waiter = get().waiters.find((w) => w.id === id);
+        if (waiter) upsertWaiter(waiter).catch((e) => console.warn('[toggleWaiterStatus] sync failed:', e));
+      },
+      updateWaiterPin: (id, pin) => {
+        set((state) => ({
+          waiters: state.waiters.map((w) => w.id === id ? { ...w, pin } : w),
+        }));
+        const waiter = get().waiters.find((w) => w.id === id);
+        if (waiter) upsertWaiter({ ...waiter, pin }).catch((e) => console.warn('[updateWaiterPin] sync failed:', e));
+      },
 
       notifications: [],
       setNotifications: (notifications) => set({ notifications }),

@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRestaurantStore } from '@/store/restaurantStore';
 import { clearAdminSession, getAdminSession, createAdmin, fetchAdmins, deleteAdmin } from '@/lib/adminAuth';
 import type { AdminRecord } from '@/lib/adminAuth';
+import { fetchWaiters } from '@/lib/firebaseService';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Plus, Trash2, LayoutDashboard, UtensilsCrossed, Users, Receipt, LogOut, QrCode, ListOrdered, Upload, X, ShieldCheck, Loader2 } from 'lucide-react';
@@ -142,9 +143,18 @@ function DashboardView() {
 }
 
 function WaiterManagement() {
-  const { waiters, addWaiter, deleteWaiter, toggleWaiterStatus } = useRestaurantStore();
+  const { waiters, addWaiter, deleteWaiter, toggleWaiterStatus, setWaiters } = useRestaurantStore();
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ name: '', email: '', pin: '' });
+  const [loadingWaiters, setLoadingWaiters] = useState(false);
+
+  // Load waiters from Firestore on mount so all admins see the same list
+  useEffect(() => {
+    setLoadingWaiters(true);
+    fetchWaiters().then((fbWaiters) => {
+      if (fbWaiters.length > 0) setWaiters(fbWaiters);
+    }).catch(() => {}).finally(() => setLoadingWaiters(false));
+  }, []);
 
   const handleAdd = () => {
     if (!form.name || !form.email || !form.pin) { toast.error('Fill all fields'); return; }
@@ -192,6 +202,11 @@ function WaiterManagement() {
       )}
       
       <div className="bg-card border border-border/50 rounded-2xl overflow-hidden shadow-sm">
+        {loadingWaiters ? (
+          <div className="flex items-center justify-center py-10 gap-2 text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading staff from server...
+          </div>
+        ) : (
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-muted/10 border-b border-border/50">
@@ -230,6 +245,7 @@ function WaiterManagement() {
             )}
           </tbody>
         </table>
+        )}
       </div>
     </div>
   );

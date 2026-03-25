@@ -5,7 +5,7 @@ import { fetchOrders, fetchNotifications, upsertNotification } from '@/lib/fireb
 import type { FirebaseOrder, FirebaseNotification } from '@/lib/firebaseService';
 import { formatOrderTime } from '@/lib/orderUtils';
 import { predictWaitTime } from '@/lib/aiPriority';
-import { CheckCircle2, Clock, ChefHat, Utensils, ShoppingBag, RefreshCw, CreditCard, Banknote, ExternalLink, Users, Star } from 'lucide-react';
+import { CheckCircle2, Clock, ChefHat, Utensils, ShoppingBag, RefreshCw, CreditCard, Banknote, ExternalLink, Users, Star, Receipt } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 
@@ -54,9 +54,11 @@ interface PaymentModalProps {
 
 function PaymentModal({ order, onCash, onOnlinePaid }: PaymentModalProps) {
   const { paymentQRCodes, paymentUPIIds, updateOrderPaymentMethod, confirmOnlinePayment, setSplitCount } = useRestaurantStore();
-  const [mode, setMode] = useState<'choose' | 'online' | 'cash_done' | 'split'>('choose');
+  const [mode, setMode] = useState<'choose' | 'online' | 'cash_done' | 'split' | 'bill_mobile'>('choose');
   const [activeProvider, setActiveProvider] = useState(PROVIDERS[0].id);
   const [splitPeople, setSplitPeople] = useState(order.splitCount || 2);
+  const [mobileNumber, setMobileNumber] = useState('');
+  const [mobileSent, setMobileSent] = useState(false);
 
   const activeProviderInfo = PROVIDERS.find((p) => p.id === activeProvider)!;
   const activeUPIId = paymentUPIIds[activeProvider] || ENV_UPI[activeProvider] || '';
@@ -86,6 +88,26 @@ function PaymentModal({ order, onCash, onOnlinePaid }: PaymentModalProps) {
     updateOrderPaymentMethod(order.id, 'online');
     confirmOnlinePayment(order.id);
     onOnlinePaid();
+  };
+
+  const handleSendMobileForBill = async () => {
+    if (!/^[6-9]\d{9}$/.test(mobileNumber)) {
+      toast.error('Enter a valid 10-digit mobile number'); return;
+    }
+    try {
+      await upsertNotification({
+        id: `N${order.tableId}_bill_mobile_${Date.now()}`,
+        tableId: order.tableId,
+        type: 'request_bill',
+        message: `🧾 Bill request — Table ${order.tableId}\nMobile: ${mobileNumber}\nTotal: ₹${order.total.toLocaleString('en-IN')}`,
+        read: false,
+        createdAt: Date.now(),
+      });
+      setMobileSent(true);
+      toast.success('Waiter notified — bill coming shortly');
+    } catch (_) {
+      toast.error('Failed to send request');
+    }
   };
 
   return (
@@ -137,6 +159,18 @@ function PaymentModal({ order, onCash, onOnlinePaid }: PaymentModalProps) {
                 <span className="text-xs text-muted-foreground">
                   {splitPeople > 1 ? `${splitPeople} people · ₹${perPerson}/each` : 'Tap to split'}
                 </span>
+              </button>
+
+              {/* Need bill */}
+              <button
+                onClick={() => setMode('bill_mobile')}
+                className="w-full flex items-center justify-between p-3 rounded-xl border border-border hover:bg-muted/30 transition-all"
+              >
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <Receipt className="h-4 w-4 text-orange-500" />
+                  Need a Bill?
+                </div>
+                <span className="text-xs text-muted-foreground">Enter mobile number</span>
               </button>
 
               <p className="text-sm font-semibold text-center text-muted-foreground">How would you like to pay?</p>
@@ -191,6 +225,41 @@ function PaymentModal({ order, onCash, onOnlinePaid }: PaymentModalProps) {
               >
                 Confirm Split
               </Button>
+            </div>
+          )}
+
+          {/* Bill mobile screen */}
+          {mode === 'bill_mobile' && (
+            <div className="space-y-4">
+              <button onClick={() => setMode('choose')} className="text-xs text-primary underline">← Back</button>
+              {mobileSent ? (
+                <div className="text-center py-4 space-y-3">
+                  <div className="text-4xl">✅</div>
+                  <p className="font-bold text-lg">Waiter Notified</p>
+                  <p className="text-sm text-muted-foreground">Your waiter will bring the bill to Table {order.tableId} shortly.</p>
+                </div>
+              ) : (
+                <>
+                  <p className="font-semibold text-center">Enter your mobile number</p>
+                  <p className="text-xs text-center text-muted-foreground">Your waiter will bring the bill to your table</p>
+                  <input
+                    type="tel"
+                    inputMode="numeric"
+                    maxLength={10}
+                    value={mobileNumber}
+                    onChange={(e) => setMobileNumber(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                    placeholder="10-digit mobile number"
+                    className="w-full border border-border rounded-xl px-4 py-3 text-center text-lg font-bold tracking-widest focus:ring-2 focus:ring-primary/50 outline-none"
+                  />
+                  <Button
+                    onClick={handleSendMobileForBill}
+                    className="w-full"
+                    disabled={mobileNumber.length < 10}
+                  >
+                    Request Bill
+                  </Button>
+                </>
+              )}
             </div>
           )}
 
@@ -256,15 +325,6 @@ function PaymentModal({ order, onCash, onOnlinePaid }: PaymentModalProps) {
                   <p className="text-sm text-muted-foreground text-center py-2">Payment not configured. Please pay cash.</p>
                 )}
               </div>
-
-              <Button
-                onClick={handleOnlinePaid}
-                className="w-full bg-green-600 hover:bg-green-700 text-white"
-                size="lg"
-              >
-                <CheckCircle2 className="h-5 w-5 mr-2" />
-                I've Paid — Show Receipt
-              </Button>
             </div>
           )}
         </div>
