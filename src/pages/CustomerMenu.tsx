@@ -1,13 +1,14 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { Plus, Minus, ShoppingCart, Bell, Receipt, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useRestaurantStore, type MenuItem } from '@/store/restaurantStore';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { ConfirmOrderButton } from '@/components/ConfirmOrderButton';
+import { upsertNotification as upsertNotificationDirect } from '@/lib/firebaseService';
 
 function MenuItemCard({ item }: { item: MenuItem }) {
-  const { addToCart, cart, updateCartQuantity } = useRestaurantStore();
+  const { addToCart, cart, updateCartQuantity, menuItemImages } = useRestaurantStore();
   const cartItem = cart.find((c) => c.id === item.id);
 
   return (
@@ -16,9 +17,16 @@ function MenuItemCard({ item }: { item: MenuItem }) {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className="dish-name">{item.name}</span>
-            {item.dietary?.map((d) => (
-              <span key={d} className="text-[10px] font-bold border border-muted-foreground/30 text-muted-foreground rounded px-1 py-0.5 leading-none">
-                {d}
+            {item.dietary?.filter((d) => d === 'V' || d === 'NV').map((d) => (
+              <span
+                key={d}
+                className={`text-[10px] font-bold rounded px-1 py-0.5 leading-none ${
+                  d === 'V'
+                    ? 'bg-green-100 text-green-700 border border-green-300'
+                    : 'bg-red-100 text-red-700 border border-red-300'
+                }`}
+              >
+                {d === 'V' ? '🟢 Veg' : '🔴 Non-Veg'}
               </span>
             ))}
           </div>
@@ -63,10 +71,10 @@ function MenuItemCard({ item }: { item: MenuItem }) {
           )}
         </div>
       </div>
-      {item.image && (
+      {(item.image || menuItemImages[item.id]) && (
         <div className="mt-3">
           <img 
-            src={item.image} 
+            src={item.image || menuItemImages[item.id]} 
             alt={item.name}
             className="w-full h-48 object-cover rounded-lg"
           />
@@ -168,9 +176,12 @@ export default function CustomerMenu() {
   const { tableId } = useParams<{ tableId: string }>();
   const [searchParams] = useSearchParams();
   const sessionType = searchParams.get('type') || 'active';
-  const { menuItems, cart, cartTotal, setCurrentTableId, addNotification, categoryImages, placeOrder, orders } = useRestaurantStore();
+  const isDevMode = searchParams.get('dev') === 'true' || window.location.hostname === 'localhost';
+  const { menuItems, cart, cartTotal, setCurrentTableId, addNotification, categoryImages, menuItemImages, placeOrder, orders } = useRestaurantStore();
   const [cartOpen, setCartOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const vegRef = useRef<HTMLDivElement>(null);
+  const nonVegRef = useRef<HTMLDivElement>(null);
 
   // Set current table when the route changes
   useEffect(() => {
@@ -227,22 +238,54 @@ export default function CustomerMenu() {
 
   const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
 
-  const handleCallWaiter = () => {
+  const handleCallWaiter = async () => {
     if (!tableId) return;
-    addNotification({ tableId, type: 'call_waiter', message: `Table ${tableId} is calling for a waiter` });
-    toast.success('Waiter has been notified!');
+    try {
+      await upsertNotificationDirect({
+        id: `N${tableId}_cw_${Date.now()}`,
+        tableId,
+        type: 'call_waiter',
+        message: `Table ${tableId} is calling for a waiter`,
+        read: false,
+        createdAt: Date.now(),
+      });
+      addNotification({ tableId, type: 'call_waiter', message: `Table ${tableId} is calling for a waiter` });
+      toast.success('Waiter has been notified!');
+    } catch (e: any) {
+      toast.error(`Failed to notify waiter: ${e?.message || e}`);
+    }
   };
 
-  const handleRequestBill = () => {
+  const handleRequestBill = async () => {
     if (!tableId) return;
-    addNotification({ tableId, type: 'request_bill', message: `Table ${tableId} is requesting the bill` });
-    toast.success('Bill requested! The waiter will bring it shortly.');
+    try {
+      await upsertNotificationDirect({
+        id: `N${tableId}_rb_${Date.now()}`,
+        tableId,
+        type: 'request_bill',
+        message: `Table ${tableId} is requesting the bill`,
+        read: false,
+        createdAt: Date.now(),
+      });
+      addNotification({ tableId, type: 'request_bill', message: `Table ${tableId} is requesting the bill` });
+      toast.success('Bill requested! The waiter will bring it shortly.');
+    } catch (e: any) {
+      toast.error(`Failed to request bill: ${e?.message || e}`);
+    }
   };
 
   return (
     <div className="min-h-screen bg-background pb-24 max-w-5xl mx-auto">
       {/* Header */}
       <div className="px-4 pt-6 pb-2">
+        {isDevMode && (
+          <button
+            onClick={() => window.location.href = '/'}
+            className="mb-3 flex items-center gap-1.5 text-xs font-medium text-muted-foreground bg-muted px-3 py-1.5 rounded-full hover:bg-muted/80 transition"
+          >
+            ← Dev: Back to Home
+          </button>
+        )}
         <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Table {tableId}</p>
         <div className="flex items-center justify-between mt-1">
           <h1 className="text-2xl font-bold">Menu</h1>
@@ -272,7 +315,8 @@ export default function CustomerMenu() {
           <div className="grid grid-cols-2 gap-3">
             {Array.from(categories.entries()).map(([category, items]) => {
               const categoryImage = categoryImages[category];
-              const thumbnail = categoryImage || items.find((i) => i.image)?.image;
+              const thumbnailItem = items.find((i) => i.image || menuItemImages[i.id]);
+              const thumbnail = categoryImage || (thumbnailItem ? (thumbnailItem.image || menuItemImages[thumbnailItem.id]) : undefined);
               return (
                 <button
                   key={category}
@@ -280,7 +324,7 @@ export default function CustomerMenu() {
                   onClick={() => setSelectedCategory(category)}
                   className="overflow-hidden rounded-xl border border-border bg-card p-0 text-left shadow-sm hover:shadow-md transition"
                 >
-                  <div className="h-28 w-full overflow-hidden bg-muted/20">
+                  <div className="h-48 w-full overflow-hidden bg-muted/20">
                     {thumbnail ? (
                       <img
                         src={thumbnail}
@@ -330,8 +374,8 @@ export default function CustomerMenu() {
                   <>
                     {splitByDiet ? (
                       <>
-                        <div>
-                          <h2 className="text-lg font-semibold mb-3">Veg</h2>
+                        <div ref={vegRef}>
+                          <h2 className="text-lg font-semibold mb-3">🟢 Veg</h2>
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             {vegItems.map((item) => (
                               <div key={item.id} className="rounded-xl border border-border bg-card p-4">
@@ -340,8 +384,8 @@ export default function CustomerMenu() {
                             ))}
                           </div>
                         </div>
-                        <div>
-                          <h2 className="text-lg font-semibold mb-3">Non‑Veg</h2>
+                        <div ref={nonVegRef}>
+                          <h2 className="text-lg font-semibold mb-3">🔴 Non‑Veg</h2>
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             {nonVegItems.map((item) => (
                               <div key={item.id} className="rounded-xl border border-border bg-card p-4">
@@ -349,6 +393,22 @@ export default function CustomerMenu() {
                               </div>
                             ))}
                           </div>
+                        </div>
+
+                        {/* Floating Veg / Non-Veg scroll buttons */}
+                        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-40 flex gap-2">
+                          <button
+                            onClick={() => vegRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                            className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-green-600 text-white text-sm font-semibold shadow-lg active:scale-95 transition-transform"
+                          >
+                            🟢 Veg
+                          </button>
+                          <button
+                            onClick={() => nonVegRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                            className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-red-600 text-white text-sm font-semibold shadow-lg active:scale-95 transition-transform"
+                          >
+                            🔴 Non-Veg
+                          </button>
                         </div>
                       </>
                     ) : (

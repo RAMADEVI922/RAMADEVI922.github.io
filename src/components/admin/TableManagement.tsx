@@ -129,11 +129,10 @@ export default function TableManagement() {
   };
 
   const getQRCodeURL = (tableNumber: number) => {
-    // For local development, use current origin
-    // For production (GitHub Pages), use /QRMENU base path
-    const isProduction = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
-    const baseUrl = isProduction ? window.location.origin + '/QRMENU' : window.location.origin;
-    return `${baseUrl}/table-session?table=${tableNumber}`;
+    // Always point to production Firebase Hosting URL
+    // so QR codes work on mobile even when admin is on localhost
+    const prodUrl = 'https://qr-menu-19cd1.web.app';
+    return `${prodUrl}/menu/T${tableNumber}`;
   };
 
   return (

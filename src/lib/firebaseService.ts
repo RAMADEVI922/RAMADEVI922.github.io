@@ -1,7 +1,45 @@
-import { collection, doc, setDoc, deleteDoc, getDocs, onSnapshot, query, orderBy, limit } from "firebase/firestore";
+import { collection, doc, setDoc, deleteDoc, getDocs, onSnapshot, query, orderBy, getDoc } from "firebase/firestore";
 import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { db, storage, isFirebaseConfigured } from "./firebase";
-import { isOfflineModeEnabled, saveOfflineOrder, updateOfflineOrderStatus, getOfflineOrders } from "./offlineMode";
+
+// Compress and resize image aggressively to fit Firestore's 1MB doc limit
+// Tries progressively lower quality until under 700KB
+function compressImageToBase64(file: File, maxWidth = 400, quality = 0.4): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const scale = Math.min(1, maxWidth / img.width);
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width * scale;
+      canvas.height = img.height * scale;
+      const ctx = canvas.getContext('2d')!;
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+      // Try progressively lower quality until under 700KB
+      const qualities = [0.4, 0.3, 0.2, 0.1];
+      for (const q of qualities) {
+        const result = canvas.toDataURL('image/jpeg', q);
+        const sizeKB = Math.round(result.length * 0.75 / 1024);
+        console.log(`[compress] quality=${q} size=${sizeKB}KB`);
+        if (sizeKB < 700) {
+          resolve(result);
+          return;
+        }
+      }
+      // Last resort: shrink canvas further
+      const smallCanvas = document.createElement('canvas');
+      smallCanvas.width = 200;
+      smallCanvas.height = Math.round(canvas.height * (200 / canvas.width));
+      const sCtx = smallCanvas.getContext('2d')!;
+      sCtx.drawImage(canvas, 0, 0, smallCanvas.width, smallCanvas.height);
+      resolve(smallCanvas.toDataURL('image/jpeg', 0.3));
+    };
+    img.onerror = reject;
+    img.src = url;
+  });
+}
 
 export interface FirebaseMenuItem {
   id: string;
@@ -14,18 +52,22 @@ export interface FirebaseMenuItem {
   image?: string;
 }
 
-const menuItemsCollection = db ? collection(db, "menuItems") : null;
+// Lazy getters — avoids crash when Firebase is not yet initialized
+const getMenuItemsCollection = () => db ? collection(db, "menuItems") : null;
+const getPhotosCollection = () => db ? collection(db, "photos") : null;
+const getOrdersCollection = () => db ? collection(db, "orders") : null;
+const getNotificationsCollection = () => db ? collection(db, "notifications") : null;
+const getConfigCollection = () => db ? collection(db, "config") : null;
 
 export async function fetchMenuItems(): Promise<FirebaseMenuItem[]> {
+  const menuItemsCollection = getMenuItemsCollection();
   if (!isFirebaseConfigured || !menuItemsCollection) {
     console.warn('Firebase not configured. Returning empty menu items.');
     return [];
   }
-  
   try {
     const q = query(menuItemsCollection, orderBy("name"));
     const snapshot = await getDocs(q);
-
     return snapshot.docs.map((doc) => ({
       id: doc.id,
       ...(doc.data() as Omit<FirebaseMenuItem, "id">),
@@ -37,25 +79,40 @@ export async function fetchMenuItems(): Promise<FirebaseMenuItem[]> {
 }
 
 export async function upsertMenuItem(item: FirebaseMenuItem): Promise<void> {
+  const menuItemsCollection = getMenuItemsCollection();
   if (!isFirebaseConfigured || !menuItemsCollection) {
     console.warn('Firebase not configured. Menu item not saved.');
     return;
   }
-
   try {
+    // Warn if image is large — Firestore has 1MB per document limit
+    if (item.image?.startsWith('data:')) {
+      const sizeKB = Math.round(item.image.length * 0.75 / 1024);
+      console.log(`[upsertMenuItem] ${item.id} image size: ~${sizeKB}KB`);
+      if (sizeKB > 900) {
+        console.warn(`[upsertMenuItem] Image too large (${sizeKB}KB), stripping to avoid Firestore error`);
+        const { image: _, ...rest } = item;
+        const docRef = doc(menuItemsCollection, item.id);
+        await setDoc(docRef, rest);
+        return;
+      }
+    }
     const docRef = doc(menuItemsCollection, item.id);
-    await setDoc(docRef, { ...item });
+    // Remove undefined fields — Firestore rejects them
+    const clean = Object.fromEntries(Object.entries(item).filter(([, v]) => v !== undefined));
+    await setDoc(docRef, clean);
+    console.log(`[upsertMenuItem] saved ${item.id} successfully`);
   } catch (error) {
-    console.warn('Failed to upsert menu item:', error);
+    console.error('Failed to upsert menu item:', error);
   }
 }
 
 export async function deleteMenuItem(id: string): Promise<void> {
+  const menuItemsCollection = getMenuItemsCollection();
   if (!isFirebaseConfigured || !menuItemsCollection) {
     console.warn('Firebase not configured. Menu item not deleted.');
     return;
   }
-
   try {
     const docRef = doc(menuItemsCollection, id);
     await deleteDoc(docRef);
@@ -69,9 +126,14 @@ export async function uploadMenuItemImage(
   itemId: string,
   onProgress?: (progress: number) => void
 ): Promise<string> {
+  const fallback = async () => {
+    const b64 = await compressImageToBase64(file);
+    onProgress?.(100);
+    return b64;
+  };
+
   if (!isFirebaseConfigured || !storage) {
-    console.warn('Firebase not configured. Image not uploaded.');
-    return '';
+    return fallback();
   }
 
   try {
@@ -97,27 +159,23 @@ export async function uploadMenuItemImage(
       );
     });
 
-    // Adding a 15-second timeout to prevent the UI from hanging indefinitely
     const timeoutPromise = new Promise<string>((_, reject) =>
-      setTimeout(() => {
-        uploadTask.cancel();
-        reject(new Error("Upload timed out after 15 seconds"));
-      }, 15000)
+      setTimeout(() => { uploadTask.cancel(); reject(new Error("Upload timed out")); }, 15000)
     );
 
-    return Promise.race([uploadPromise, timeoutPromise]);
+    return await Promise.race([uploadPromise, timeoutPromise]);
   } catch (error) {
-    console.warn('Failed to upload image:', error);
-    return '';
+    console.warn('Firebase Storage upload failed, falling back to base64:', error);
+    return fallback();
   }
 }
 
 export function watchMenuItems(onChanged: (items: FirebaseMenuItem[]) => void) {
+  const menuItemsCollection = getMenuItemsCollection();
   if (!isFirebaseConfigured || !menuItemsCollection) {
     console.warn('Firebase not configured. Menu items will not be watched.');
     return () => {};
   }
-
   try {
     const q = query(menuItemsCollection, orderBy("name"));
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -134,9 +192,107 @@ export function watchMenuItems(onChanged: (items: FirebaseMenuItem[]) => void) {
   }
 }
 
+// Category Banners
+export async function saveCategoryBanner(category: string, url: string): Promise<void> {
+  const photosCollection = getPhotosCollection();
+  if (!photosCollection) return;
+  try {
+    // Warn if base64 is large but still try to save — we compress aggressively
+    if (url.startsWith('data:')) {
+      const sizeKB = Math.round(url.length * 0.75 / 1024);
+      console.log(`[saveCategoryBanner] ${category} image size: ~${sizeKB}KB`);
+    }
+    const docRef = doc(photosCollection, "category_banners");
+    await setDoc(docRef, { [category]: url }, { merge: true });
+    console.log(`[saveCategoryBanner] saved ${category} successfully`);
+  } catch (error) {
+    console.error('Failed to save category banner:', error);
+  }
+}
+export async function fetchCategoryBanners(): Promise<Record<string, string>> {
+  const photosCollection = getPhotosCollection();
+  if (!photosCollection) return {};
+  try {
+    const docRef = doc(photosCollection, "category_banners");
+    const snapshot = await getDoc(docRef);
+    return (snapshot.data() as Record<string, string>) || {};
+  } catch (error) {
+    console.warn('Failed to fetch category banners:', error);
+    return {};
+  }
+}
 
-// ============ ORDERS FUNCTIONS ============
+export function watchCategoryBanners(onChanged: (banners: Record<string, string>) => void) {
+  const photosCollection = getPhotosCollection();
+  if (!photosCollection) return () => {};
+  const docRef = doc(photosCollection, "category_banners");
+  return onSnapshot(docRef, (snap) => {
+    onChanged((snap.data() as Record<string, string>) || {});
+  });
+}
 
+export async function uploadCategoryImage(
+  file: File,
+  category: string,
+  onProgress?: (progress: number) => void
+): Promise<string> {
+  const fallback = async () => {
+    const b64 = await compressImageToBase64(file);
+    onProgress?.(100);
+    return b64;
+  };
+
+  if (!isFirebaseConfigured || !storage) {
+    return fallback();
+  }
+
+  try {
+    const storageRef = ref(storage, `categoryBanners/${category}_${Date.now()}`);
+    const uploadTask = uploadBytesResumable(storageRef, file);
+
+    const uploadPromise = new Promise<string>((resolve, reject) => {
+      uploadTask.on(
+        "state_changed",
+        (snapshot) => {
+          const progress = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
+          onProgress?.(progress);
+        },
+        (error) => reject(error),
+        async () => {
+          try {
+            const url = await getDownloadURL(uploadTask.snapshot.ref);
+            resolve(url);
+          } catch (e) {
+            reject(e);
+          }
+        }
+      );
+    });
+
+    const timeoutPromise = new Promise<string>((_, reject) =>
+      setTimeout(() => { uploadTask.cancel(); reject(new Error("Upload timed out")); }, 15000)
+    );
+
+    return await Promise.race([uploadPromise, timeoutPromise]);
+  } catch (error) {
+    console.warn('Firebase Storage upload failed, falling back to base64:', error);
+    return fallback();
+  }
+}
+
+export async function deleteCategoryBanner(category: string): Promise<void> {
+  const photosCollection = getPhotosCollection();
+  if (!photosCollection) return;
+  const docRef = doc(photosCollection, "category_banners");
+  const snapshot = await getDoc(docRef);
+  if (snapshot.exists()) {
+    const data = snapshot.data();
+    delete data[category];
+    await setDoc(docRef, data);
+  }
+}
+
+// Orders
 export interface FirebaseOrder {
   id: string;
   tableId: string;
@@ -151,211 +307,252 @@ export interface FirebaseOrder {
     image?: string;
     quantity: number;
   }>;
-  status: 'pending' | 'confirmed' | 'preparing' | 'served';
+  status: 'pending' | 'confirmed' | 'preparing' | 'served' | 'delivered';
   total: number;
-  createdAt: string; // ISO string
+  createdAt: number;
   readyAt: number;
   paymentMethod?: 'cash' | 'online';
+  assignedWaiterId?: string;
+  customerEmail?: string;
 }
 
-const ordersCollection = db ? collection(db, "orders") : null;
+export interface FirebaseNotification {
+  id: string;
+  tableId: string;
+  type: 'order' | 'call_waiter' | 'request_bill' | 'extra_order' | 'payment_request' | 'cash_payment' | 'feedback';
+  message: string;
+  read: boolean;
+  createdAt: number;
+}
 
-export async function saveOrder(order: FirebaseOrder, retryCount: number = 0): Promise<void> {
+export async function upsertOrder(order: FirebaseOrder): Promise<void> {
+  const ordersCollection = getOrdersCollection();
   if (!isFirebaseConfigured || !ordersCollection) {
-    // Firebase not available - fallback to offline storage
-    if (isOfflineModeEnabled()) {
-      saveOfflineOrder(order);
-    }
-    console.warn('⚠️ Firebase not configured. Order saved to offline storage only.');
+    console.error('[upsertOrder] Firebase not configured');
     return;
   }
-
   try {
     const docRef = doc(ordersCollection, order.id);
-    await setDoc(docRef, {
-      ...order,
-      createdAt: order.createdAt, // Already ISO string
-      updatedAt: new Date().toISOString(),
-      syncedAt: new Date().toISOString(),
-    });
-    console.log('✅ Order saved to Firebase:', order.id, 'from Table:', order.tableId);
-  } catch (error: any) {
-    const errorMessage = error?.message || JSON.stringify(error);
-    const isQuotaError = errorMessage.includes('quota') || errorMessage.includes('resource-exhausted');
-    
-    if (isQuotaError) {
-      console.error('🚨 QUOTA EXCEEDED - Cannot save order to Firebase:', order.id);
-      console.error('💡 Tip: Wait a few minutes and try again, or upgrade to Firebase Blaze plan');
-    } else {
-      console.warn('⚠️ Failed to save order to Firebase:', error);
-    }
-    
-    // Retry with exponential backoff (max 3 retries, up to 8 seconds total)
-    if (retryCount < 3 && !isQuotaError) {
-      const delayMs = Math.pow(2, retryCount) * 1000; // 1s, 2s, 4s
-      console.log(`⏳ Retrying order save (attempt ${retryCount + 2}/4) after ${delayMs}ms...`);
-      await new Promise(resolve => setTimeout(resolve, delayMs));
-      return saveOrder(order, retryCount + 1);
-    }
-    
-    // Always fallback to offline storage on error
-    console.log('💾 Saving to offline storage as fallback');
-    saveOfflineOrder(order);
-  }
-}
-
-export async function updateOrderStatus(orderId: string, status: string, retryCount: number = 0): Promise<void> {
-  // If offline mode is enabled, update in localStorage instead of Firebase
-  if (isOfflineModeEnabled()) {
-    updateOfflineOrderStatus(orderId, status as 'pending' | 'confirmed' | 'preparing' | 'served');
-    return;
-  }
-
-  if (!isFirebaseConfigured || !ordersCollection) {
-    console.warn('⚠️ Firebase not configured. Order status not updated.');
-    return;
-  }
-
-  try {
-    const docRef = doc(ordersCollection, orderId);
-    await setDoc(docRef, { 
-      status, 
-      updatedAt: new Date().toISOString(),
-      statusChangedAt: new Date().toISOString(),
-    }, { merge: true });
-    console.log('✅ Order status updated in Firebase:', orderId, '→', status);
-  } catch (error: any) {
-    const errorMessage = error?.message || JSON.stringify(error);
-    const isQuotaError = errorMessage.includes('quota') || errorMessage.includes('resource-exhausted');
-    
-    if (isQuotaError) {
-      console.error('🚨 QUOTA EXCEEDED - Cannot update order status:', orderId);
-    } else {
-      console.warn('⚠️ Failed to update order status:', error);
-    }
-    
-    // Retry with exponential backoff (max 2 retries for status updates)
-    if (retryCount < 2 && !isQuotaError) {
-      const delayMs = Math.pow(2, retryCount) * 1000;
-      console.log(`⏳ Retrying status update (attempt ${retryCount + 2}/3) after ${delayMs}ms...`);
-      await new Promise(resolve => setTimeout(resolve, delayMs));
-      return updateOrderStatus(orderId, status, retryCount + 1);
-    }
-    
-    // Fallback to offline storage on error
-    updateOfflineOrderStatus(orderId, status as 'pending' | 'confirmed' | 'preparing' | 'served');
+    // Strip base64 images from items — Firestore has a 1MB doc limit
+    const sanitizedItems = order.items.map(({ image: _image, ...rest }) => rest);
+    const clean = Object.fromEntries(
+      Object.entries({ ...order, items: sanitizedItems }).filter(([, v]) => v !== undefined)
+    );
+    console.log('[upsertOrder] saving order:', order.id, 'table:', order.tableId, 'items:', sanitizedItems.length);
+    await setDoc(docRef, clean);
+    console.log('[upsertOrder] SUCCESS:', order.id);
+  } catch (error) {
+    console.error('[upsertOrder] FAILED:', error);
+    throw error;
   }
 }
 
 export async function fetchOrders(): Promise<FirebaseOrder[]> {
-  if (!isFirebaseConfigured || !ordersCollection) {
-    console.warn('Firebase not configured. Loading from offline storage.');
-    // Fallback to offline storage
-    if (isOfflineModeEnabled()) {
-      const offlineOrders = getOfflineOrders();
-      return offlineOrders as FirebaseOrder[];
-    }
-    return [];
-  }
-
+  const ordersCollection = getOrdersCollection();
+  if (!isFirebaseConfigured || !ordersCollection) return [];
   try {
-    // Fetch orders from all 6 tables
-    const ALL_TABLES = ['T1', 'T2', 'T3', 'T4', 'T5', 'T6'];
-    const q = query(
-      ordersCollection,
-      orderBy('createdAt', 'desc'),
-      limit(200) // Fetch more to ensure we get all tables
-    );
-    const snapshot = await getDocs(q);
-
-    const allOrders = snapshot.docs.map((doc) => ({
+    const snapshot = await getDocs(ordersCollection);
+    const orders = snapshot.docs.map((doc) => ({
       id: doc.id,
       ...(doc.data() as Omit<FirebaseOrder, "id">),
     }));
-    
-    // Filter to valid tables only
-    const validOrders = allOrders.filter(order => ALL_TABLES.includes(order.tableId));
-    console.log('📥 Fetched', validOrders.length, 'orders from', new Set(validOrders.map(o => o.tableId)).size, 'tables');
-    
-    return validOrders;
+    return orders.sort((a, b) => b.createdAt - a.createdAt);
   } catch (error) {
     console.warn('Failed to fetch orders from Firebase:', error);
-    // Fallback to offline storage on error
-    if (isOfflineModeEnabled()) {
-      const offlineOrders = getOfflineOrders();
-      return offlineOrders as FirebaseOrder[];
-    }
     return [];
   }
 }
 
 export function watchOrders(onChanged: (orders: FirebaseOrder[]) => void): () => void {
-  if (!isFirebaseConfigured || !ordersCollection) {
-    console.warn('Firebase not configured. Using offline storage with polling.');
-    // Fallback to offline storage with polling
-    if (isOfflineModeEnabled()) {
-      const offlineOrders = getOfflineOrders();
-      onChanged(offlineOrders as FirebaseOrder[]);
-      
-      const pollInterval = setInterval(() => {
-        const updated = getOfflineOrders();
-        onChanged(updated as FirebaseOrder[]);
-      }, 1000);
-      
-      return () => clearInterval(pollInterval);
-    }
-    return () => {};
-  }
-
+  const ordersCollection = getOrdersCollection();
+  if (!isFirebaseConfigured || !ordersCollection) return () => {};
   try {
-    // Watch orders from all 6 tables with optimized query
-    const ALL_TABLES = ['T1', 'T2', 'T3', 'T4', 'T5', 'T6'];
-    const q = query(
-      ordersCollection,
-      orderBy('createdAt', 'desc'),
-      limit(200)
-    );
-    const unsubscribe = onSnapshot(q, { includeMetadataChanges: false }, (snapshot) => {
-      const allOrders = snapshot.docs.map((doc) => ({
+    return onSnapshot(ordersCollection, (snapshot) => {
+      const orders = snapshot.docs.map((doc) => ({
         id: doc.id,
         ...(doc.data() as Omit<FirebaseOrder, "id">),
       }));
-      
-      // Filter to valid tables only
-      const validOrders = allOrders.filter(order => ALL_TABLES.includes(order.tableId));
-      const tables = Array.from(new Set(validOrders.map(o => o.tableId))).sort().join(', ');
-      console.log('📊 Firebase orders updated:', validOrders.length, 'orders from tables:', tables || 'none');
-      onChanged(validOrders);
-    }, (error) => {
-      console.warn('Firebase listener error:', error);
-      // Fallback to offline storage on error
-      if (isOfflineModeEnabled()) {
-        const offlineOrders = getOfflineOrders();
-        onChanged(offlineOrders as FirebaseOrder[]);
-        
-        const pollInterval = setInterval(() => {
-          const updated = getOfflineOrders();
-          onChanged(updated as FirebaseOrder[]);
-        }, 500);
-        
-        return () => clearInterval(pollInterval);
-      }
+      orders.sort((a, b) => b.createdAt - a.createdAt);
+      onChanged(orders);
     });
-    return unsubscribe;
   } catch (error) {
     console.warn('Failed to watch orders:', error);
-    // Fallback to offline storage on error
-    if (isOfflineModeEnabled()) {
-      const offlineOrders = getOfflineOrders();
-      onChanged(offlineOrders as FirebaseOrder[]);
-      
-      const pollInterval = setInterval(() => {
-        const updated = getOfflineOrders();
-        onChanged(updated as FirebaseOrder[]);
-      }, 500);
-      
-      return () => clearInterval(pollInterval);
-    }
     return () => {};
+  }
+}
+
+export async function upsertNotification(notification: FirebaseNotification): Promise<void> {
+  const notificationsCollection = getNotificationsCollection();
+  if (!isFirebaseConfigured || !notificationsCollection) {
+    console.error('[upsertNotification] Firebase not configured! db=', db, 'isConfigured=', isFirebaseConfigured);
+    return;
+  }
+  try {
+    const docRef = doc(notificationsCollection, notification.id);
+    const clean = Object.fromEntries(Object.entries(notification).filter(([, v]) => v !== undefined));
+    console.log('[upsertNotification] attempting write:', notification.id, notification.type, 'to collection: notifications');
+    await setDoc(docRef, clean);
+    console.log('[upsertNotification] SUCCESS saved', notification.id, notification.type);
+  } catch (error) {
+    console.error('[upsertNotification] FAILED:', error);
+    throw error; // re-throw so caller can see it
+  }
+}
+
+export async function fetchNotifications(): Promise<FirebaseNotification[]> {
+  const notificationsCollection = getNotificationsCollection();
+  if (!isFirebaseConfigured || !notificationsCollection) return [];
+  try {
+    // No orderBy — avoids needing a Firestore index on a new collection
+    const snapshot = await getDocs(notificationsCollection);
+    const notifications = snapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...(doc.data() as Omit<FirebaseNotification, "id">),
+    }));
+    // Sort client-side
+    return notifications.sort((a, b) => b.createdAt - a.createdAt);
+  } catch (error) {
+    console.warn('Failed to fetch notifications:', error);
+    return [];
+  }
+}
+
+export function watchNotifications(onChanged: (notifications: FirebaseNotification[]) => void) {
+  const notificationsCollection = getNotificationsCollection();
+  if (!isFirebaseConfigured || !notificationsCollection) {
+    console.warn('[watchNotifications] Firebase not configured');
+    return () => {};
+  }
+  try {
+    // No orderBy — avoids needing a Firestore index, sort client-side instead
+    console.log('[watchNotifications] listener started');
+    return onSnapshot(notificationsCollection,
+      (snapshot) => {
+        const notifications = snapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...(doc.data() as Omit<FirebaseNotification, "id">),
+        }));
+        // Sort newest first client-side
+        notifications.sort((a, b) => b.createdAt - a.createdAt);
+        console.log('[watchNotifications] received', notifications.length, 'notifications');
+        onChanged(notifications);
+      },
+      (error) => {
+        console.error('[watchNotifications] listener error:', error);
+      }
+    );
+  } catch (error) {
+    console.error('[watchNotifications] setup failed:', error);
+    return () => {};
+  }
+}
+
+// Alias used by useOrdersSync — accepts createdAt as ISO string or number
+export async function saveOrder(order: Omit<FirebaseOrder, 'createdAt'> & { createdAt: string | number }): Promise<void> {
+  const normalized: FirebaseOrder = {
+    ...order,
+    createdAt: typeof order.createdAt === 'string' ? new Date(order.createdAt).getTime() : order.createdAt,
+  };
+  return upsertOrder(normalized);
+}
+
+// Alias for backward compatibility with OrdersQueue component
+export async function updateOrderStatus(orderId: string, status: string): Promise<void> {
+  const ordersCollection = getOrdersCollection();
+  if (!isFirebaseConfigured || !ordersCollection) return;
+  try {
+    const docRef = doc(ordersCollection, orderId);
+    await setDoc(docRef, { status }, { merge: true });
+  } catch (error) {
+    console.warn('Failed to update order status:', error);
+  }
+}
+
+// ── Payment Config (QR codes + UPI IDs) ──────────────────────────────────────
+// Each provider stored as its own doc to avoid 1MB Firestore limit:
+//   config/payment_phonepe  { qrCode: base64, upiId: string }
+//   config/payment_gpay     { qrCode: base64, upiId: string }
+//   config/payment_paytm    { qrCode: base64, upiId: string }
+
+export interface PaymentConfig {
+  qrCodes: Record<string, string>;
+  upiIds: Record<string, string>;
+}
+
+// Compress a base64 image string to a small size suitable for Firestore
+// QR codes are B&W so they compress very well even at low quality
+async function compressBase64QR(base64: string): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      // QR codes don't need to be large — 300px is plenty for display
+      const size = Math.min(300, img.width);
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d')!;
+      ctx.drawImage(img, 0, 0, size, size);
+      // Try progressively lower quality
+      for (const q of [0.5, 0.3, 0.2, 0.1]) {
+        const result = canvas.toDataURL('image/jpeg', q);
+        if (result.length < 200_000) { // under ~150KB
+          resolve(result);
+          return;
+        }
+      }
+      resolve(canvas.toDataURL('image/jpeg', 0.1));
+    };
+    img.onerror = () => resolve(base64); // fallback: use original
+    img.src = base64;
+  });
+}
+
+export async function saveProviderPaymentConfig(
+  provider: string,
+  qrCode: string,
+  upiId: string
+): Promise<void> {
+  const col = getConfigCollection();
+  if (!isFirebaseConfigured || !col) return;
+  try {
+    const compressed = qrCode ? await compressBase64QR(qrCode) : '';
+    await setDoc(doc(col, `payment_${provider}`), { qrCode: compressed, upiId });
+    console.log(`[saveProviderPaymentConfig] saved ${provider}, size=${compressed.length}`);
+  } catch (e) {
+    console.error(`[saveProviderPaymentConfig] failed for ${provider}:`, e);
+  }
+}
+
+export async function saveProviderUPIId(provider: string, upiId: string): Promise<void> {
+  const col = getConfigCollection();
+  if (!isFirebaseConfigured || !col) return;
+  try {
+    await setDoc(doc(col, `payment_${provider}`), { upiId }, { merge: true });
+    console.log(`[saveProviderUPIId] saved ${provider} upiId=${upiId}`);
+  } catch (e) {
+    console.error(`[saveProviderUPIId] failed for ${provider}:`, e);
+  }
+}
+
+export async function fetchPaymentConfig(): Promise<PaymentConfig | null> {
+  const col = getConfigCollection();
+  if (!isFirebaseConfigured || !col) return null;
+  try {
+    const providers = ['phonepe', 'gpay', 'paytm'];
+    const snaps = await Promise.all(providers.map((p) => getDoc(doc(col, `payment_${p}`))));
+    const qrCodes: Record<string, string> = {};
+    const upiIds: Record<string, string> = {};
+    snaps.forEach((snap, i) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        if (data.qrCode) qrCodes[providers[i]] = data.qrCode;
+        if (data.upiId) upiIds[providers[i]] = data.upiId;
+      }
+    });
+    console.log('[fetchPaymentConfig] loaded providers:', Object.keys(qrCodes));
+    return { qrCodes, upiIds };
+  } catch (e) {
+    console.error('[fetchPaymentConfig] failed:', e);
+    return null;
   }
 }

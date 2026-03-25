@@ -81,9 +81,9 @@ export function ConfirmOrderButton({
         toast.success('Order confirmed! Redirecting...');
         onSuccess?.(newOrder.id);
 
-        // Redirect to post-order page
+        // Navigate to tracking page — customer sees live status bar
         setTimeout(() => {
-          navigate(`/order-summary/${currentTableId}`);
+          navigate(`/track/${currentTableId}`);
         }, 500);
       } else {
         console.error('🛒 ConfirmOrderButton: ❌ Order was not found in store after placement');

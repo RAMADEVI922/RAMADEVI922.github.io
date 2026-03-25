@@ -4,16 +4,15 @@ import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Plus, Trash2, Edit, X, UploadCloud, Search, DollarSign, Image as ImageIcon, Flame, ImagePlus } from 'lucide-react';
 import { toast } from 'sonner';
-import { uploadMenuItemImage } from '@/lib/firebaseService';
+import { uploadMenuItemImage, uploadCategoryImage, saveCategoryBanner, deleteCategoryBanner } from '@/lib/firebaseService';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export default function MenuManagement() {
-  const { menuItems, addMenuItem, deleteMenuItem, updateMenuItem, categoryImages, setCategoryImage, clearCategoryImage } = useRestaurantStore();
+  const { menuItems, addMenuItem, deleteMenuItem, updateMenuItem, categoryImages, setCategoryImage, clearCategoryImage, setMenuItemImage, clearMenuItemImage } = useRestaurantStore();
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({ name: '', description: '', price: '', category: '', dietary: '', image: '' });
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState<string>('All');
@@ -73,7 +72,6 @@ export default function MenuManagement() {
     }
 
     setIsSaving(true);
-    setUploadProgress(null);
 
     const itemId = editingId ?? `M${Date.now()}`;
     const dietary = form.dietary ? form.dietary.split(',').map((d) => d.trim()) : undefined;
@@ -83,7 +81,6 @@ export default function MenuManagement() {
     if (selectedFile) {
       try {
         imageUrl = await uploadMenuItemImage(selectedFile, itemId, (progress: number) => {
-          setUploadProgress(progress);
         });
         setForm((prev) => ({ ...prev, image: imageUrl ?? '' }));
       } catch (error) {
@@ -103,6 +100,10 @@ export default function MenuManagement() {
           dietary,
           image: imageUrl,
         });
+        // If image is base64, store it separately in the persistent images map
+        if (imageUrl?.startsWith('data:')) {
+          setMenuItemImage(editingId, imageUrl);
+        }
         toast.success('Item updated successfully');
       } else {
         await addMenuItem({
@@ -115,6 +116,10 @@ export default function MenuManagement() {
           dietary,
           image: imageUrl,
         });
+        // If image is base64, store it separately in the persistent images map
+        if (imageUrl?.startsWith('data:')) {
+          setMenuItemImage(itemId, imageUrl);
+        }
         toast.success('New menu item added');
       }
 
@@ -124,19 +129,38 @@ export default function MenuManagement() {
       console.error(error);
     } finally {
       setIsSaving(false);
-      setUploadProgress(null);
     }
   };
 
-  const handleCategoryImageUpload = (category: string, file: File | null) => {
+  const handleCategoryImageUpload = async (category: string, file: File | null) => {
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
-      setCategoryImage(category, dataUrl);
+    
+    setIsSaving(true);
+    
+    try {
+      const imageUrl = await uploadCategoryImage(file, category, (progress) => {
+      });
+      
+      await saveCategoryBanner(category, imageUrl);
+      setCategoryImage(category, imageUrl);
       toast.success(`Banner uploaded for ${category}`);
-    };
-    reader.readAsDataURL(file);
+    } catch (error) {
+      console.error('Failed to upload category banner:', error);
+      toast.error('Failed to upload cover image');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleClearCategoryBanner = async (category: string) => {
+    try {
+      await deleteCategoryBanner(category);
+      clearCategoryImage(category);
+      toast.success(`Banner removed for ${category}`);
+    } catch (error) {
+      console.error('Failed to delete category banner:', error);
+      toast.error('Failed to remove cover image');
+    }
   };
 
   return (
@@ -218,7 +242,7 @@ export default function MenuManagement() {
                   <Button size="icon" variant="secondary" className="h-8 w-8 rounded-full shadow-lg hover:scale-110 transition-transform bg-white text-black" onClick={() => startEdit(item)}>
                     <Edit className="h-4 w-4" />
                   </Button>
-                  <Button size="icon" variant="destructive" className="h-8 w-8 rounded-full shadow-lg hover:scale-110 transition-transform" onClick={() => { deleteMenuItem(item.id); toast.success('Deleted'); }}>
+                  <Button size="icon" variant="destructive" className="h-8 w-8 rounded-full shadow-lg hover:scale-110 transition-transform" onClick={() => { deleteMenuItem(item.id); clearMenuItemImage(item.id); toast.success('Deleted'); }}>
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>
@@ -246,9 +270,11 @@ export default function MenuManagement() {
                   
                   {item.dietary && item.dietary.length > 0 && (
                     <div className="flex gap-1">
-                      {item.dietary.map(d => (
-                        <span key={d} className="px-2 py-0.5 bg-secondary text-secondary-foreground text-[10px] font-bold rounded-md tracking-wider">
-                          {d}
+                      {item.dietary.filter((d) => d === 'V' || d === 'NV').map(d => (
+                        <span key={d} className={`px-2 py-0.5 text-[10px] font-bold rounded-md tracking-wider ${
+                          d === 'V' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                        }`}>
+                          {d === 'V' ? '🟢 Veg' : '🔴 Non-Veg'}
                         </span>
                       ))}
                     </div>
@@ -308,7 +334,7 @@ export default function MenuManagement() {
                 Change Cover
               </Button>
               {categoryImages[activeCategory] && (
-                <Button onClick={() => clearCategoryImage(activeCategory)} variant="destructive" size="icon" className="rounded-full">
+                <Button onClick={() => handleClearCategoryBanner(activeCategory)} variant="destructive" size="icon" className="rounded-full">
                   <Trash2 className="w-4 h-4" />
                 </Button>
               )}
@@ -396,14 +422,30 @@ export default function MenuManagement() {
                     </div>
 
                     <div className="space-y-2">
-                      <label className="text-sm font-semibold flex items-center gap-2">Dietary Badges</label>
-                      <input 
-                        className="w-full bg-background border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all shadow-sm"
-                        placeholder="e.g. V, GF, Vegan" 
-                        value={form.dietary} 
-                        onChange={(e) => setForm({ ...form, dietary: e.target.value })} 
-                        disabled={isSaving}
-                      />
+                      <label className="text-sm font-semibold flex items-center gap-2">Dietary</label>
+                      <div className="flex gap-2">
+                        {['Veg', 'Non-Veg'].map((opt) => {
+                          const val = opt === 'Veg' ? 'V' : 'NV';
+                          const selected = form.dietary === val;
+                          return (
+                            <button
+                              key={opt}
+                              type="button"
+                              onClick={() => setForm({ ...form, dietary: selected ? '' : val })}
+                              disabled={isSaving}
+                              className={`flex items-center gap-1.5 px-4 py-2 rounded-xl border text-sm font-semibold transition-all ${
+                                selected
+                                  ? opt === 'Veg'
+                                    ? 'bg-green-100 border-green-400 text-green-700'
+                                    : 'bg-red-100 border-red-400 text-red-700'
+                                  : 'border-border text-muted-foreground hover:bg-muted'
+                              }`}
+                            >
+                              {opt === 'Veg' ? '🟢' : '🔴'} {opt}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
 
@@ -487,22 +529,6 @@ export default function MenuManagement() {
                       </div>
                     </div>
                     
-                    {/* Upload Progress */}
-                    {uploadProgress !== null && (
-                      <div className="space-y-1.5 mt-2">
-                        <div className="flex justify-between text-xs font-semibold text-muted-foreground">
-                          <span>Uploading...</span>
-                          <span>{Math.round(uploadProgress)}%</span>
-                        </div>
-                        <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
-                          <motion.div 
-                            initial={{ width: 0 }}
-                            animate={{ width: `${uploadProgress}%` }}
-                            className="h-full bg-primary" 
-                          />
-                        </div>
-                      </div>
-                    )}
                   </div>
                 </form>
               </div>
@@ -541,3 +567,4 @@ export default function MenuManagement() {
     </div>
   );
 }
+

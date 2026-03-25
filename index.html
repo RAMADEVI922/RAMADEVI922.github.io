@@ -51,9 +51,9 @@
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
     <script type="text/javascript">
-      // Register service worker only in production (GitHub Pages)
+      // Register service worker only in production
       if ('serviceWorker' in navigator && window.location.hostname !== 'localhost') {
-        navigator.serviceWorker.register('/QRMENU/sw.js').catch((err) => {
+        navigator.serviceWorker.register('/sw.js').catch((err) => {
           console.log('Service Worker registration failed:', err);
         });
       }

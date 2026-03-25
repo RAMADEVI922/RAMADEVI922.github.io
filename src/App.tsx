@@ -11,7 +11,11 @@ import AdminPanel from "./pages/AdminPanel.tsx";
 import AdminLogin from "./pages/AdminLogin.tsx";
 import AdminSignUp from "./pages/AdminSignUp.tsx";
 import WaiterPanel from "./pages/WaiterPanel.tsx";
+import WaiterLogin from "./pages/WaiterLogin.tsx";
 import OrderSummaryPage from "./pages/OrderSummaryPage.tsx";
+import OrderTrackingPage from "./pages/OrderTrackingPage.tsx";
+import KitchenDashboard from "./pages/KitchenDashboard.tsx";
+import FeedbackPage from "./pages/FeedbackPage.tsx";
 import ProtectedRoute from "./components/ProtectedRoute.tsx";
 import { useFirebaseSync } from "./lib/useFirebaseSync";
 import { useOrdersSync } from "./lib/useOrdersSync";
@@ -23,32 +27,34 @@ const App = () => {
   useOrdersSync();
 
   return (
-    <div className="h-screen w-screen bg-background text-foreground">
-      <QueryClientProvider client={queryClient}>
-        <TooltipProvider>
-          <Toaster />
-          <Sonner />
-          <Routes>
-            <Route path="/" element={<Index />} />
-            <Route path="/table-session" element={<SessionSelection />} />
-            <Route path="/menu/:tableId" element={<CustomerMenu />} />
-            <Route path="/order-summary/:tableId" element={<OrderSummaryPage />} />
-            <Route path="/admin-login" element={<AdminLogin />} />
-            <Route path="/admin-signup" element={<AdminSignUp />} />
-            <Route
-              path="/admin"
-              element={
-                <ProtectedRoute>
-                  <AdminPanel />
-                </ProtectedRoute>
-              }
-            />
-            <Route path="/waiter" element={<WaiterPanel />} />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </TooltipProvider>
-      </QueryClientProvider>
-    </div>
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider>
+        <Toaster />
+        <Sonner />
+        <Routes>
+        <Route path="/" element={<Index />} />
+        <Route path="/table-session" element={<SessionSelection />} />
+        <Route path="/menu/:tableId" element={<CustomerMenu />} />
+        <Route path="/order-summary/:tableId" element={<OrderSummaryPage />} />
+        <Route path="/track/:tableId" element={<OrderTrackingPage />} />
+        <Route path="/admin-login" element={<AdminLogin />} />
+        <Route path="/admin-signup" element={<AdminSignUp />} />
+        <Route
+          path="/admin"
+          element={
+            <ProtectedRoute>
+              <AdminPanel />
+            </ProtectedRoute>
+          }
+        />
+        <Route path="/waiter-login" element={<WaiterLogin />} />
+        <Route path="/waiter" element={<WaiterPanel />} />
+        <Route path="/kitchen" element={<KitchenDashboard />} />
+        <Route path="/feedback/:tableId" element={<FeedbackPage />} />
+        <Route path="*" element={<NotFound />} />
+      </Routes>
+    </TooltipProvider>
+  </QueryClientProvider>
   );
 };
 

@@ -6,7 +6,7 @@ import fs from "fs";
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
-  base: "/QRMENU/",
+  base: mode === 'production' ? '/' : '/QRMENU/',
   server: {
     host: true,
     port: 5174,
