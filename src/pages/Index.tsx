@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { QrCode, Shield, UtensilsCrossed, ArrowRight } from 'lucide-react';
@@ -9,6 +10,8 @@ const BG_VIDEOS = [
 ];
 
 export default function Index() {
+  const [hoveredBtn, setHoveredBtn] = useState<string | null>(null);
+
   return (
     <div className="min-h-screen flex flex-col relative overflow-hidden">
 
@@ -19,18 +22,23 @@ export default function Index() {
           muted
           loop
           playsInline
-          className="w-full h-full object-cover"
-          style={{ filter: 'blur(3px) brightness(0.45) saturate(1.2)', transform: 'scale(1.05)' }}
+          className="w-full h-full object-cover transition-all duration-500"
+          style={{
+            filter: hoveredBtn
+              ? 'blur(12px) brightness(0.3) saturate(1.2)'
+              : 'blur(3px) brightness(0.45) saturate(1.2)',
+            transform: 'scale(1.05)',
+          }}
         >
           <source src={BG_VIDEOS[0]} type="video/mp4" />
           <source src={BG_VIDEOS[1]} type="video/mp4" />
         </video>
-        {/* Dark gradient overlay for readability */}
+        {/* Dark gradient overlay */}
         <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-black/20 to-black/60" />
       </div>
 
       {/* ── Header ── */}
-      <header className="relative z-10 border-b border-white/10 bg-black/20 backdrop-blur-sm">
+      <header className={`relative z-10 border-b border-white/10 bg-black/20 backdrop-blur-sm transition-all duration-500 ${hoveredBtn ? 'opacity-20' : 'opacity-100'}`}>
         <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <QrCode className="h-6 w-6 text-orange-400" />
@@ -49,12 +57,12 @@ export default function Index() {
         <div className="max-w-2xl text-center">
 
           {/* Badge */}
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-orange-500/20 border border-orange-400/30 text-orange-300 text-xs font-semibold mb-6 backdrop-blur-sm animate-fade-in">
+          <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-orange-500/20 border border-orange-400/30 text-orange-300 text-xs font-semibold mb-6 backdrop-blur-sm animate-fade-in transition-all duration-500 ${hoveredBtn ? 'opacity-10' : 'opacity-100'}`}>
             <span className="h-1.5 w-1.5 rounded-full bg-orange-400 animate-pulse" />
             Contactless Dining Experience
           </div>
 
-          <div className="animate-fade-in">
+          <div className={`animate-fade-in transition-all duration-500 ${hoveredBtn ? 'opacity-10' : 'opacity-100'}`}>
             <h1 className="text-4xl sm:text-6xl font-bold leading-tight tracking-tight text-white drop-shadow-lg">
               Taste the Future
               <span className="block text-orange-400 mt-1">of Dining.</span>
@@ -69,31 +77,79 @@ export default function Index() {
             className="mt-8 flex flex-col sm:flex-row gap-3 justify-center animate-fade-in"
             style={{ animationDelay: '0.1s' }}
           >
-            <Link to="/menu/T1">
+            <style>{`
+              @keyframes float-a {
+                0%   { transform: translate(0px, 0px); }
+                25%  { transform: translate(3px, -5px); }
+                50%  { transform: translate(-2px, -8px); }
+                75%  { transform: translate(-4px, -3px); }
+                100% { transform: translate(0px, 0px); }
+              }
+              @keyframes float-b {
+                0%   { transform: translate(0px, 0px); }
+                25%  { transform: translate(-4px, -4px); }
+                50%  { transform: translate(2px, -7px); }
+                75%  { transform: translate(4px, -2px); }
+                100% { transform: translate(0px, 0px); }
+              }
+              @keyframes float-c {
+                0%   { transform: translate(0px, 0px); }
+                25%  { transform: translate(2px, -6px); }
+                50%  { transform: translate(-3px, -4px); }
+                75%  { transform: translate(3px, -7px); }
+                100% { transform: translate(0px, 0px); }
+              }
+              .btn-float-a { animation: float-a 3.5s ease-in-out infinite; }
+              .btn-float-b { animation: float-b 4s ease-in-out infinite; animation-delay: 0.6s; }
+              .btn-float-c { animation: float-c 3.8s ease-in-out infinite; animation-delay: 1.2s; }
+              .btn-hovered { animation: none !important; transform: scale(1.18) !important; transition: transform 0.35s cubic-bezier(0.34,1.56,0.64,1); }
+            `}</style>
+
+            {/* View Demo Menu */}
+            <Link
+              to="/menu/T1"
+              className={`btn-float-a relative z-30 transition-all duration-350 ${hoveredBtn === 'menu' ? 'btn-hovered' : hoveredBtn ? 'opacity-20 scale-95' : ''}`}
+              onMouseEnter={() => setHoveredBtn('menu')}
+              onMouseLeave={() => setHoveredBtn(null)}
+            >
               <Button
                 size="lg"
-                className="gap-2 w-full sm:w-auto bg-orange-500 hover:bg-orange-600 text-white shadow-lg shadow-orange-500/30 border-0"
+                className="gap-2 w-full sm:w-auto bg-orange-500 hover:bg-orange-600 text-white border-0 shadow-2xl shadow-orange-500/50"
               >
                 <UtensilsCrossed className="h-4 w-4" />
                 View Demo Menu
                 <ArrowRight className="h-4 w-4" />
               </Button>
             </Link>
-            <Link to="/admin-login">
+
+            {/* Admin Panel */}
+            <Link
+              to="/admin-login"
+              className={`btn-float-b relative z-30 transition-all duration-350 ${hoveredBtn === 'admin' ? 'btn-hovered' : hoveredBtn ? 'opacity-20 scale-95' : ''}`}
+              onMouseEnter={() => setHoveredBtn('admin')}
+              onMouseLeave={() => setHoveredBtn(null)}
+            >
               <Button
                 variant="outline"
                 size="lg"
-                className="gap-2 w-full sm:w-auto bg-white/10 border-white/20 text-white hover:bg-white/20 backdrop-blur-sm"
+                className="gap-2 w-full sm:w-auto bg-white/10 border-white/20 text-white hover:bg-white/20 backdrop-blur-sm shadow-xl shadow-white/10"
               >
                 <Shield className="h-4 w-4" />
                 Admin Panel
               </Button>
             </Link>
-            <Link to="/waiter-login">
+
+            {/* Waiter Panel */}
+            <Link
+              to="/waiter-login"
+              className={`btn-float-c relative z-30 transition-all duration-350 ${hoveredBtn === 'waiter' ? 'btn-hovered' : hoveredBtn ? 'opacity-20 scale-95' : ''}`}
+              onMouseEnter={() => setHoveredBtn('waiter')}
+              onMouseLeave={() => setHoveredBtn(null)}
+            >
               <Button
                 variant="outline"
                 size="lg"
-                className="gap-2 w-full sm:w-auto bg-white/10 border-white/20 text-white hover:bg-white/20 backdrop-blur-sm"
+                className="gap-2 w-full sm:w-auto bg-white/10 border-white/20 text-white hover:bg-white/20 backdrop-blur-sm shadow-xl shadow-white/10"
               >
                 <UtensilsCrossed className="h-4 w-4" />
                 Waiter Panel
@@ -101,26 +157,6 @@ export default function Index() {
             </Link>
           </div>
 
-          {/* Feature cards */}
-          <div
-            className="mt-16 grid grid-cols-1 sm:grid-cols-3 gap-4 text-left animate-fade-in"
-            style={{ animationDelay: '0.2s' }}
-          >
-            {[
-              { emoji: '📱', title: 'Scan & Order', desc: 'Customers scan a QR code at their table to instantly access the menu and place orders.' },
-              { emoji: '⚡', title: 'Real-time Updates', desc: 'Waiters receive instant notifications. Menu changes reflect immediately.' },
-              { emoji: '🎛️', title: 'Full Control', desc: 'Admin panel to manage menu items, tables, waiters, and track billing.' },
-            ].map((f) => (
-              <div
-                key={f.title}
-                className="p-4 rounded-2xl bg-white/10 border border-white/15 backdrop-blur-md hover:bg-white/15 transition-all"
-              >
-                <div className="text-2xl mb-2">{f.emoji}</div>
-                <h3 className="font-semibold text-sm text-white">{f.title}</h3>
-                <p className="text-sm text-white/60 mt-1 leading-relaxed">{f.desc}</p>
-              </div>
-            ))}
-          </div>
         </div>
       </main>
 
