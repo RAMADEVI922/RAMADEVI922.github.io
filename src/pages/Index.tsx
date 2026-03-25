@@ -4,8 +4,8 @@ import { QrCode, Shield, UtensilsCrossed, ArrowRight } from 'lucide-react';
 
 // Free restaurant/chef ambience videos from Pixabay CDN (no auth needed)
 const BG_VIDEOS = [
-  'https://cdn.pixabay.com/video/2022/10/14/135335-762403756_large.mp4',  // chef cooking
-  'https://cdn.pixabay.com/video/2021/04/01/69849-533616984_large.mp4',   // restaurant ambience
+  'https://cdn.pixabay.com/video/2024/01/15/197237-905263852_large.mp4',  // chef cooking
+  'https://cdn.pixabay.com/video/2023/12/28/195358-899026896_large.mp4',   // restaurant ambience
 ];
 
 export default function Index() {

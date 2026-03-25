@@ -33,7 +33,9 @@ if (isFirebaseConfigured) {
     // This is safe because Firestore rules control actual access
     signInAnonymously(auth).catch((err: any) => {
       // Silently fail - anonymous auth is optional
-      console.debug('Firebase anonymous auth:', err?.code);
+      if (err?.code !== 'auth/operation-not-allowed') {
+        console.debug('Firebase anonymous auth:', err?.code);
+      }
     });
 
     console.log('✅ Firebase initialized successfully');
