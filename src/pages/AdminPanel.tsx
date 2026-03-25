@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useRestaurantStore } from '@/store/restaurantStore';
-import { clearAdminSession } from '@/lib/adminAuth';
+import { clearAdminSession, getAdminSession, createAdmin, fetchAdmins, deleteAdmin } from '@/lib/adminAuth';
+import type { AdminRecord } from '@/lib/adminAuth';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
-import { Plus, Trash2, LayoutDashboard, UtensilsCrossed, Users, Receipt, LogOut, QrCode, ListOrdered, Upload, X } from 'lucide-react';
+import { Plus, Trash2, LayoutDashboard, UtensilsCrossed, Users, Receipt, LogOut, QrCode, ListOrdered, Upload, X, ShieldCheck, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Link, useNavigate } from 'react-router-dom';
 
@@ -11,7 +12,7 @@ import MenuManagement from '@/components/admin/MenuManagement';
 import TableManagement from '@/components/admin/TableManagement';
 import OrdersQueue from '@/components/admin/OrdersQueue';
 
-type AdminTab = 'dashboard' | 'menu' | 'tables' | 'orders-queue' | 'waiters' | 'bills' | 'payment-qr';
+type AdminTab = 'dashboard' | 'menu' | 'tables' | 'orders-queue' | 'waiters' | 'bills' | 'payment-qr' | 'admins';
 
 const navItems: { id: AdminTab; label: string; icon: React.ReactNode }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="h-4 w-4" /> },
@@ -21,6 +22,7 @@ const navItems: { id: AdminTab; label: string; icon: React.ReactNode }[] = [
   { id: 'waiters', label: 'Waiters', icon: <Users className="h-4 w-4" /> },
   { id: 'bills', label: 'Bills', icon: <Receipt className="h-4 w-4" /> },
   { id: 'payment-qr', label: 'Payment QR', icon: <QrCode className="h-4 w-4" /> },
+  { id: 'admins', label: 'Admins', icon: <ShieldCheck className="h-4 w-4" /> },
 ];
 
 function Sidebar({ activeTab, setActiveTab }: { activeTab: AdminTab; setActiveTab: (t: AdminTab) => void }) {
@@ -609,6 +611,174 @@ function PaymentQRManagement() {
   );
 }
 
+function AdminManagement() {
+  const session = getAdminSession();
+  const [admins, setAdmins] = useState<AdminRecord[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [passcode, setPasscode] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [adding, setAdding] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const list = await fetchAdmins();
+      setAdmins(list);
+      setLoaded(true);
+    } catch (e: any) {
+      toast.error('Failed to load admins');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Load on mount
+  useState(() => { load(); });
+
+  const handleAdd = async () => {
+    if (!name.trim() || !email.trim() || passcode.length < 4) {
+      toast.error('Fill all fields with a 4-digit passcode'); return;
+    }
+    if (passcode !== confirm) { toast.error('Passcodes do not match'); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { toast.error('Invalid email'); return; }
+    setAdding(true);
+    try {
+      await createAdmin(email.trim(), passcode, name.trim());
+      toast.success(`Admin "${name}" added`);
+      setName(''); setEmail(''); setPasscode(''); setConfirm('');
+      await load();
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to add admin');
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const handleDelete = async (admin: AdminRecord) => {
+    if (admin.email === session?.email) { toast.error("You can't delete your own account"); return; }
+    if (!confirm(`Delete admin "${admin.name}"?`)) return;
+    try {
+      await deleteAdmin(admin.id);
+      toast.success(`Removed ${admin.name}`);
+      setAdmins((prev) => prev.filter((a) => a.id !== admin.id));
+    } catch (e: any) {
+      toast.error('Failed to delete admin');
+    }
+  };
+
+  return (
+    <div className="space-y-8">
+      <div>
+        <h2 className="text-2xl font-extrabold">Admin Accounts</h2>
+        <p className="text-sm text-muted-foreground mt-1">Manage who can log into the admin panel</p>
+      </div>
+
+      {/* Add new admin */}
+      <div className="bg-card border border-border rounded-2xl p-6 space-y-4">
+        <h3 className="font-bold text-base flex items-center gap-2">
+          <Plus className="h-4 w-4 text-primary" /> Add New Admin
+        </h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-muted-foreground">Name</label>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Manager Raj"
+              className="w-full border border-border rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-primary/50 outline-none"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-muted-foreground">Email</label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="manager@restaurant.com"
+              className="w-full border border-border rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-primary/50 outline-none"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-muted-foreground">4-Digit Passcode</label>
+            <input
+              type="password"
+              inputMode="numeric"
+              maxLength={4}
+              value={passcode}
+              onChange={(e) => setPasscode(e.target.value.replace(/\D/g, '').slice(0, 4))}
+              placeholder="••••"
+              className="w-full border border-border rounded-xl px-3 py-2 text-sm text-center tracking-[0.5em] font-bold focus:ring-2 focus:ring-primary/50 outline-none"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-muted-foreground">Confirm Passcode</label>
+            <input
+              type="password"
+              inputMode="numeric"
+              maxLength={4}
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value.replace(/\D/g, '').slice(0, 4))}
+              placeholder="••••"
+              className="w-full border border-border rounded-xl px-3 py-2 text-sm text-center tracking-[0.5em] font-bold focus:ring-2 focus:ring-primary/50 outline-none"
+            />
+          </div>
+        </div>
+        <Button onClick={handleAdd} disabled={adding} className="gap-2">
+          {adding ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+          Add Admin
+        </Button>
+      </div>
+
+      {/* Existing admins list */}
+      <div className="bg-card border border-border rounded-2xl p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="font-bold text-base">Existing Admins ({admins.length})</h3>
+          <Button variant="outline" size="sm" onClick={load} disabled={loading} className="gap-1.5">
+            {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : '↻'} Refresh
+          </Button>
+        </div>
+        {!loaded || loading ? (
+          <p className="text-sm text-muted-foreground py-4 text-center">Loading...</p>
+        ) : admins.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-4 text-center">No admins found.</p>
+        ) : (
+          <div className="space-y-2">
+            {admins.map((admin) => (
+              <div key={admin.id} className="flex items-center justify-between p-3 rounded-xl border border-border bg-muted/20">
+                <div className="flex items-center gap-3">
+                  <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center font-bold text-primary text-sm">
+                    {admin.name.charAt(0).toUpperCase()}
+                  </div>
+                  <div>
+                    <p className="font-semibold text-sm">{admin.name}
+                      {admin.email === session?.email && (
+                        <span className="ml-2 text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full font-semibold">You</span>
+                      )}
+                    </p>
+                    <p className="text-xs text-muted-foreground">{admin.email}</p>
+                  </div>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={admin.email === session?.email}
+                  onClick={() => handleDelete(admin)}
+                  className="text-red-500 hover:text-red-600 hover:bg-red-50 disabled:opacity-30"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function AdminPanel() {
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
 
@@ -624,6 +794,7 @@ export default function AdminPanel() {
           {activeTab === 'waiters' && <WaiterManagement />}
           {activeTab === 'bills' && <BillManagement />}
           {activeTab === 'payment-qr' && <PaymentQRManagement />}
+          {activeTab === 'admins' && <AdminManagement />}
         </div>
       </main>
     </div>
