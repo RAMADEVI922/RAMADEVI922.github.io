@@ -800,13 +800,7 @@ export default function AdminPanel() {
   // Always load waiters from Firestore on mount so all admins see the same list
   useEffect(() => {
     fetchWaiters().then((fbWaiters) => {
-      if (fbWaiters.length > 0) {
-        setWaiters(fbWaiters);
-      } else {
-        // Seed default waiters to Firestore if none exist
-        const { waiters } = useRestaurantStore.getState();
-        Promise.all(waiters.map((w) => upsertWaiter(w))).catch(() => {});
-      }
+      setWaiters(fbWaiters); // even if empty — don't seed defaults
     }).catch(() => {});
   }, []);
 

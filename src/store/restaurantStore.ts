@@ -144,11 +144,7 @@ const sampleTables: Table[] = [
   { id: 'T6', number: 6, status: 'available' },
 ];
 
-const sampleWaiters: Waiter[] = [
-  { id: 'W1', name: 'Ravi Kumar', email: 'ravi@restaurant.com', active: true, pin: '1111' },
-  { id: 'W2', name: 'Priya Singh', email: 'priya@restaurant.com', active: true, pin: '2222' },
-  { id: 'W3', name: 'Ankit Sharma', email: 'ankit@restaurant.com', active: false, pin: '3333' },
-];
+const sampleWaiters: Waiter[] = [];
 
 interface RestaurantStore {
   menuItems: MenuItem[];
