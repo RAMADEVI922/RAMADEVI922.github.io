@@ -4,7 +4,7 @@
  * Passcode is stored as a plain 4-digit string (no sensitive data risk for a local restaurant app).
  */
 import {
-  collection, getDocs, setDoc, doc, updateDoc, query, where,
+  collection, getDocs, setDoc, doc, updateDoc, deleteDoc, query, where,
 } from 'firebase/firestore';
 import { db } from './firebase';
 import emailjs from '@emailjs/browser';
@@ -38,6 +38,17 @@ export async function adminExists(): Promise<boolean> {
 export async function createAdmin(email: string, passcode: string, name: string): Promise<void> {
   const id = `admin_${Date.now()}`;
   await setDoc(doc(adminsCol(), id), { id, email: email.toLowerCase().trim(), passcode, name });
+}
+
+/** Fetch all admin accounts */
+export async function fetchAdmins(): Promise<AdminRecord[]> {
+  const snap = await getDocs(adminsCol());
+  return snap.docs.map((d) => d.data() as AdminRecord);
+}
+
+/** Delete an admin by id */
+export async function deleteAdmin(id: string): Promise<void> {
+  await deleteDoc(doc(adminsCol(), id));
 }
 
 /** Verify email + passcode. Returns admin record on success, null on failure. */
