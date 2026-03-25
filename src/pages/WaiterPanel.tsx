@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useRestaurantStore } from '@/store/restaurantStore';
 import {
   fetchOrders, fetchNotifications, upsertNotification, upsertOrder,
+  fetchWaiters,
   type FirebaseOrder, type FirebaseNotification,
 } from '@/lib/firebaseService';
 import { sendBillEmail } from '@/lib/emailService';
@@ -60,8 +61,15 @@ export default function WaiterPanel() {
   const {
     orders, setOrders, updateOrderStatus, autoAssignWaiter,
     notifications, setNotifications, markNotificationRead,
-    vacateTable,
+    vacateTable, setWaiters,
   } = useRestaurantStore();
+
+  // Load waiters from Firestore on mount
+  useEffect(() => {
+    fetchWaiters().then((fbWaiters) => {
+      if (fbWaiters.length > 0) setWaiters(fbWaiters);
+    }).catch(() => {});
+  }, []);
 
   const [refreshing, setRefreshing] = useState(false);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);

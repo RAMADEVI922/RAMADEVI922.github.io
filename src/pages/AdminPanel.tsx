@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useRestaurantStore } from '@/store/restaurantStore';
 import { clearAdminSession, getAdminSession, createAdmin, fetchAdmins, deleteAdmin } from '@/lib/adminAuth';
 import type { AdminRecord } from '@/lib/adminAuth';
-import { fetchWaiters } from '@/lib/firebaseService';
+import { fetchWaiters, upsertWaiter } from '@/lib/firebaseService';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Plus, Trash2, LayoutDashboard, UtensilsCrossed, Users, Receipt, LogOut, QrCode, ListOrdered, Upload, X, ShieldCheck, Loader2 } from 'lucide-react';
@@ -795,6 +795,20 @@ function AdminManagement() {
 
 export default function AdminPanel() {
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
+  const { setWaiters } = useRestaurantStore();
+
+  // Always load waiters from Firestore on mount so all admins see the same list
+  useEffect(() => {
+    fetchWaiters().then((fbWaiters) => {
+      if (fbWaiters.length > 0) {
+        setWaiters(fbWaiters);
+      } else {
+        // Seed default waiters to Firestore if none exist
+        const { waiters } = useRestaurantStore.getState();
+        Promise.all(waiters.map((w) => upsertWaiter(w))).catch(() => {});
+      }
+    }).catch(() => {});
+  }, []);
 
   return (
     <div className="flex min-h-screen w-full bg-background text-foreground">
