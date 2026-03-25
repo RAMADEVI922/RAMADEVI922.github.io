@@ -594,8 +594,11 @@ export async function fetchPaymentConfig(): Promise<PaymentConfig | null> {
     });
     console.log('[fetchPaymentConfig] loaded providers:', Object.keys(qrCodes));
     return { qrCodes, upiIds };
-  } catch (e) {
-    console.error('[fetchPaymentConfig] failed:', e);
+  } catch (e: any) {
+    // Silently handle permission errors - payment config is optional
+    if (e?.code !== 'permission-denied') {
+      console.error('[fetchPaymentConfig] failed:', e);
+    }
     return null;
   }
 }
