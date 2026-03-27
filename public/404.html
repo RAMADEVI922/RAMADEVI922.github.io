@@ -4,12 +4,17 @@
   <meta charset="utf-8">
   <title>QR Restaurant Menu</title>
   <script>
-    // GitHub Pages SPA redirect — store the path and redirect to index
-    var path = window.location.pathname.replace('/QRMENU', '') || '/';
-    var search = window.location.search;
-    var hash = window.location.hash;
-    sessionStorage.setItem('redirect', path + search + hash);
-    window.location.replace('/QRMENU/');
+    // Save the full path and redirect to base
+    var l = window.location;
+    var segmentCount = 1; // /QRMENU = 1 segment
+    var q = l.search ? '&q=' + l.search.slice(1) : '';
+    var hash = l.hash || '';
+    var path = l.pathname.split('/').slice(segmentCount + 1).join('/');
+    l.replace(
+      l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') +
+      l.pathname.split('/').slice(0, segmentCount + 1).join('/') +
+      '/?p=/' + path + q + hash
+    );
   </script>
 </head>
 <body></body>
