@@ -7,25 +7,19 @@ export default function Index() {
   const [hoveredBtn, setHoveredBtn] = useState<string | null>(null);
 
   return (
-    <div className="min-h-screen flex flex-col relative overflow-hidden">
+    <div className="min-h-screen flex flex-col relative overflow-hidden" style={{ backgroundColor: '#1a1a1a' }}>
 
       {/* ── Background ── */}
       <div
         className="fixed inset-0 -z-10 transition-all duration-500"
         style={{
-          background: hoveredBtn
-            ? 'radial-gradient(ellipse at center, #1a1a1a 0%, #0a0a0a 100%)'
-            : 'radial-gradient(ellipse at 60% 40%, #2a1f0e 0%, #1c1410 30%, #111111 60%, #0a0a0a 100%)',
-          filter: hoveredBtn ? 'brightness(0.5)' : 'brightness(1)',
+          backgroundColor: hoveredBtn ? '#050505' : '#1a1a1a',
+          backgroundImage: hoveredBtn ? 'none' :
+            `radial-gradient(ellipse at 30% 30%, #2d2010 0%, transparent 60%),
+             radial-gradient(ellipse at 70% 70%, #1a1208 0%, transparent 60%),
+             radial-gradient(ellipse at 50% 50%, #222222 0%, #111111 100%)`,
         }}
-      >
-        {/* Subtle texture overlay */}
-        <div className="absolute inset-0" style={{
-          backgroundImage: `radial-gradient(circle at 20% 80%, rgba(249,115,22,0.08) 0%, transparent 50%),
-                            radial-gradient(circle at 80% 20%, rgba(249,115,22,0.05) 0%, transparent 50%),
-                            radial-gradient(circle at 50% 50%, rgba(255,255,255,0.02) 0%, transparent 70%)`,
-        }} />
-      </div>
+      />
 
       {/* ── Header ── */}
       <header className={`relative z-10 border-b border-white/10 bg-black/20 backdrop-blur-sm transition-all duration-500 ${hoveredBtn ? 'opacity-20' : 'opacity-100'}`}>
