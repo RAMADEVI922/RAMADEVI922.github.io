@@ -1,16 +1,16 @@
 <!DOCTYPE html>
 <html>
-  <head>
-    <meta charset="utf-8">
-    <title>QR Restaurant Menu</title>
-    <script type="text/javascript">
-      // Store the path that caused the 404 and redirect to index.html
-      // This enables client-side routing for SPAs on Firebase Hosting
-      var l = window.location;
-      sessionStorage.redirect = l.pathname + l.search + l.hash;
-      l.replace(l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') + '/');
-    </script>
-  </head>
-  <body>
-  </body>
+<head>
+  <meta charset="utf-8">
+  <title>QR Restaurant Menu</title>
+  <script>
+    // GitHub Pages SPA redirect — store the path and redirect to index
+    var path = window.location.pathname.replace('/QRMENU', '') || '/';
+    var search = window.location.search;
+    var hash = window.location.hash;
+    sessionStorage.setItem('redirect', path + search + hash);
+    window.location.replace('/QRMENU/');
+  </script>
+</head>
+<body></body>
 </html>
