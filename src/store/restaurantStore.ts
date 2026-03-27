@@ -444,7 +444,15 @@ export const useRestaurantStore = create<RestaurantStore>()(
       addWaiter: (waiter) => {
         const newWaiter = { ...waiter, id: `W${Date.now()}` };
         set((state) => ({ waiters: [...state.waiters, newWaiter] }));
-        upsertWaiter(newWaiter).catch((e) => console.warn('[addWaiter] sync failed:', e));
+        upsertWaiter(newWaiter)
+          .then(() => console.log('[addWaiter] saved to Firestore:', newWaiter.id))
+          .catch((e) => {
+            console.error('[addWaiter] FIRESTORE FAILED:', e);
+            // Retry once after 2 seconds
+            setTimeout(() => {
+              upsertWaiter(newWaiter).catch((e2) => console.error('[addWaiter] retry failed:', e2));
+            }, 2000);
+          });
       },
       setWaiters: (waiters) => set({ waiters }),
       deleteWaiter: (id) => {

@@ -154,13 +154,23 @@ function WaiterManagement() {
     }).catch(() => {}).finally(() => setLoadingWaiters(false));
   }, []);
 
-  const handleAdd = () => {
+  const handleAdd = async () => {
     if (!form.name || !form.email || !form.pin) { toast.error('Fill all fields'); return; }
     if (!/^\d{4}$/.test(form.pin)) { toast.error('PIN must be exactly 4 digits'); return; }
-    addWaiter({ name: form.name, email: form.email, active: true, pin: form.pin });
+    const newWaiter = { name: form.name, email: form.email, active: true, pin: form.pin };
+    addWaiter(newWaiter);
+    // Also directly write to Firestore to guarantee sync
+    const id = `W${Date.now()}`;
+    try {
+      await upsertWaiter({ ...newWaiter, id });
+      toast.success(`${form.name} registered and saved to cloud ✓`);
+    } catch (e) {
+      toast.error('Saved locally but cloud sync failed — check internet');
+    }
     setForm({ name: '', email: '', pin: '' });
     setShowForm(false);
-    toast.success('Waiter registered');
+    // Reload from Firestore to confirm
+    fetchWaiters().then((fbWaiters) => { if (fbWaiters.length > 0) setWaiters(fbWaiters); }).catch(() => {});
   };
 
   return (
