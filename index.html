@@ -33,14 +33,13 @@
     </style>
     
     <script type="text/javascript">
-      // Handle redirects from 404.html for SPA routing on GitHub Pages
       (function() {
         var params = window.location.search;
-        if (params.indexOf('?p=') !== -1 || params.indexOf('&p=') !== -1) {
+        if (params.indexOf('p=') !== -1) {
           var p = params.replace(/[?&]p=/, '');
           var q = p.indexOf('&q=') !== -1 ? '?' + p.slice(p.indexOf('&q=') + 3) : '';
           p = p.indexOf('&q=') !== -1 ? p.slice(0, p.indexOf('&q=')) : p;
-          window.history.replaceState(null, null, '/QRMENU' + (p || '/') + q + window.location.hash);
+          window.history.replaceState(null, null, (p || '/') + q + window.location.hash);
         }
       })();
     </script>
