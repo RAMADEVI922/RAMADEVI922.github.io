@@ -11,75 +11,46 @@ const COLORS = [
   '#fbbf24','#e879f9','#38bdf8','#4ade80','#facc15',
 ];
 
-// Easing: slow in middle (ease-in-out with extra slowdown at 50%)
-function easeMiddleSlow(t: number): number {
-  // Custom: fast start, very slow at 0.5, fast end
-  const s = Math.sin(t * Math.PI); // peaks at t=0.5
-  return t - 0.18 * s * Math.sin(t * Math.PI);
-}
-
 function SweepText() {
-  const [width, setWidth] = useState(0);
-  const [dir, setDir] = useState<'lr' | 'rl'>('lr');
   const [colorIdx, setColorIdx] = useState(0);
-  const rafRef = useRef<number>(0);
-
-  useEffect(() => {
-    const DURATION = 2800; // ms per sweep
-    const PAUSE = 500;
-    let start: number | null = null;
-    let running = true;
-
-    const animate = (ts: number) => {
-      if (!running) return;
-      if (!start) start = ts;
-      const elapsed = ts - start;
-      const t = Math.min(elapsed / DURATION, 1);
-      const eased = easeMiddleSlow(t);
-      setWidth(eased * 100);
-
-      if (t < 1) {
-        rafRef.current = requestAnimationFrame(animate);
-      } else {
-        // Pause then reverse
-        setTimeout(() => {
-          if (!running) return;
-          setDir((d) => {
-            const next = d === 'lr' ? 'rl' : 'lr';
-            return next;
-          });
-          setColorIdx((i) => (i + 1) % COLORS.length);
-          setWidth(0);
-          start = null;
-          rafRef.current = requestAnimationFrame(animate);
-        }, PAUSE);
-      }
-    };
-
-    rafRef.current = requestAnimationFrame(animate);
-    return () => { running = false; cancelAnimationFrame(rafRef.current); };
-  }, [dir]);
-
-  const color = COLORS[colorIdx];
+  const nextColor = COLORS[(colorIdx + 1) % COLORS.length];
+  const curColor = COLORS[colorIdx];
 
   return (
-    <span style={{ position: 'relative', display: 'inline-block', color: 'white' }}>
-      Taste the Future
+    <span style={{ position: 'relative', display: 'inline-block' }}>
+      <style>{`
+        @keyframes bubble-sweep {
+          0%   { background-position: 200% center; }
+          45%  { background-position: 80% center; }
+          55%  { background-position: 80% center; }
+          100% { background-position: -100% center; }
+        }
+        .bubble-text {
+          background-size: 250% auto;
+          -webkit-background-clip: text;
+          background-clip: text;
+          -webkit-text-fill-color: transparent;
+          color: transparent;
+          animation: bubble-sweep 3s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+        }
+      `}</style>
       <span
-        aria-hidden="true"
+        className="bubble-text"
         style={{
-          position: 'absolute',
-          top: 0, bottom: 0,
-          left: dir === 'lr' ? 0 : 'auto',
-          right: dir === 'rl' ? 0 : 'auto',
-          width: `${width}%`,
-          overflow: 'hidden',
-          whiteSpace: 'nowrap',
-          color,
-          direction: dir === 'rl' ? 'rtl' : 'ltr',
+          backgroundImage: `linear-gradient(90deg,
+            white 0%,
+            white 15%,
+            ${curColor} 35%,
+            ${nextColor} 50%,
+            ${curColor} 65%,
+            white 85%,
+            white 100%
+          )`,
+          animationDuration: '3s',
         }}
+        onAnimationIteration={() => setColorIdx((i) => (i + 1) % COLORS.length)}
       >
-        <span style={{ direction: 'ltr', display: 'inline-block' }}>Taste the Future</span>
+        Taste the Future
       </span>
     </span>
   );
