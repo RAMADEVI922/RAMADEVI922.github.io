@@ -158,16 +158,6 @@ export default function Index() {
         }}
       />
 
-      {/* ── Header ── */}
-      <header className={`relative z-10 border-b border-white/10 bg-black/20 backdrop-blur-sm transition-all duration-500 ${hoveredBtn ? 'opacity-20' : 'opacity-100'}`}>
-        <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <QrCode className="h-6 w-6 text-orange-400" />
-            <span className="font-bold text-lg text-white">QR Menu</span>
-          </div>
-        </div>
-      </header>
-
       {/* ── Hero ── */}
       <main className="relative z-10 flex-1 flex items-center justify-center px-6">
         <div className="max-w-2xl text-center">
