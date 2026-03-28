@@ -1,9 +1,89 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { QrCode, Shield, UtensilsCrossed, ArrowRight } from 'lucide-react';
 
-// ── Pixel explosion on "Dining." ──────────────────────────────────────────────
+// ── Color sweep on "Taste the Future" ────────────────────────────────────────
+const COLORS = [
+  '#f97316','#ef4444','#a855f7','#3b82f6','#10b981',
+  '#f59e0b','#ec4899','#06b6d4','#84cc16','#6366f1',
+  '#fb923c','#f43f5e','#8b5cf6','#0ea5e9','#22c55e',
+  '#fbbf24','#e879f9','#38bdf8','#4ade80','#facc15',
+];
+
+// Easing: slow in middle (ease-in-out with extra slowdown at 50%)
+function easeMiddleSlow(t: number): number {
+  // Custom: fast start, very slow at 0.5, fast end
+  const s = Math.sin(t * Math.PI); // peaks at t=0.5
+  return t - 0.18 * s * Math.sin(t * Math.PI);
+}
+
+function SweepText() {
+  const [width, setWidth] = useState(0);
+  const [dir, setDir] = useState<'lr' | 'rl'>('lr');
+  const [colorIdx, setColorIdx] = useState(0);
+  const rafRef = useRef<number>(0);
+
+  useEffect(() => {
+    const DURATION = 2800; // ms per sweep
+    const PAUSE = 500;
+    let start: number | null = null;
+    let running = true;
+
+    const animate = (ts: number) => {
+      if (!running) return;
+      if (!start) start = ts;
+      const elapsed = ts - start;
+      const t = Math.min(elapsed / DURATION, 1);
+      const eased = easeMiddleSlow(t);
+      setWidth(eased * 100);
+
+      if (t < 1) {
+        rafRef.current = requestAnimationFrame(animate);
+      } else {
+        // Pause then reverse
+        setTimeout(() => {
+          if (!running) return;
+          setDir((d) => {
+            const next = d === 'lr' ? 'rl' : 'lr';
+            return next;
+          });
+          setColorIdx((i) => (i + 1) % COLORS.length);
+          setWidth(0);
+          start = null;
+          rafRef.current = requestAnimationFrame(animate);
+        }, PAUSE);
+      }
+    };
+
+    rafRef.current = requestAnimationFrame(animate);
+    return () => { running = false; cancelAnimationFrame(rafRef.current); };
+  }, [dir]);
+
+  const color = COLORS[colorIdx];
+
+  return (
+    <span style={{ position: 'relative', display: 'inline-block', color: 'white' }}>
+      Taste the Future
+      <span
+        aria-hidden="true"
+        style={{
+          position: 'absolute',
+          top: 0, bottom: 0,
+          left: dir === 'lr' ? 0 : 'auto',
+          right: dir === 'rl' ? 0 : 'auto',
+          width: `${width}%`,
+          overflow: 'hidden',
+          whiteSpace: 'nowrap',
+          color,
+          direction: dir === 'rl' ? 'rtl' : 'ltr',
+        }}
+      >
+        <span style={{ direction: 'ltr', display: 'inline-block' }}>Taste the Future</span>
+      </span>
+    </span>
+  );
+}
 function DiningWord() {
   const [exploded, setExploded] = useState(false);
   const [particles, setParticles] = useState<Array<{id:number;char:string;x:number;y:number;vx:number;vy:number;rot:number;opacity:number}>>([]);
@@ -126,39 +206,7 @@ export default function Index() {
 
           <div className={`animate-fade-in transition-all duration-500 ${hoveredBtn ? 'opacity-10' : 'opacity-100'}`}>
             <h1 className="text-4xl sm:text-6xl font-bold leading-tight tracking-tight drop-shadow-lg">
-              <style>{`
-                @keyframes sweep-fill {
-                  0%   { width: 0%; }
-                  70%  { width: 100%; }
-                  100% { width: 100%; }
-                }
-                @keyframes sweep-reset {
-                  0%   { width: 100%; opacity: 1; }
-                  10%  { width: 100%; opacity: 0; }
-                  11%  { width: 0%; opacity: 0; }
-                  20%  { width: 0%; opacity: 1; }
-                  90%  { width: 100%; }
-                  100% { width: 100%; }
-                }
-                .sweep-container {
-                  position: relative;
-                  display: inline-block;
-                  color: white;
-                }
-                .sweep-overlay {
-                  position: absolute;
-                  top: 0; left: 0; bottom: 0;
-                  width: 0%;
-                  overflow: hidden;
-                  white-space: nowrap;
-                  color: #f97316;
-                  animation: sweep-reset 3s ease-in-out infinite;
-                }
-              `}</style>
-              <span className="sweep-container">
-                Taste the Future
-                <span className="sweep-overlay" aria-hidden="true">Taste the Future</span>
-              </span>
+              <SweepText />
               <span className="block text-orange-400 mt-1">of <DiningWord /></span>
             </h1>
             <p className="mt-5 text-lg text-white/70 max-w-md mx-auto leading-relaxed">
