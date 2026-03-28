@@ -383,7 +383,10 @@ export default function WaiterPanel() {
         </div>
       </header>
 
-      <div className="max-w-2xl mx-auto px-4 py-6 space-y-8">
+      <div className="max-w-6xl mx-auto px-4 py-6">
+        <div className="flex gap-6 items-start">
+          {/* ── Left column: orders ── */}
+          <div className="flex-1 min-w-0 space-y-8">
 
         {/* Alerts */}
         {unreadNotifications.length > 0 && (
@@ -702,96 +705,6 @@ export default function WaiterPanel() {
           )}
         </div>
 
-        {/* ── Inline Kitchen Dashboard ── */}
-        <div className="rounded-2xl border border-gray-200 overflow-hidden">
-          <button
-            onClick={() => setKitchenOpen((v) => !v)}
-            className="w-full flex items-center justify-between px-4 py-3 bg-gray-900 text-white"
-          >
-            <div className="flex items-center gap-2">
-              <LayoutGrid className="h-4 w-4 text-orange-400" />
-              <span className="font-bold text-sm">Kitchen Dashboard</span>
-              <span className="text-xs text-gray-400 ml-1">
-                · {orders.filter((o) => !snoozedOrders.has(o.id) && (o.status === 'pending' || o.status === 'confirmed' || o.status === 'preparing')).length} active
-              </span>
-            </div>
-            {kitchenOpen ? <ChevronUp className="h-4 w-4 text-gray-400" /> : <ChevronDown className="h-4 w-4 text-gray-400" />}
-          </button>
-
-          {kitchenOpen && (
-            <div className="bg-gray-950 p-3">
-              <div className="grid grid-cols-2 gap-2">
-                {KITCHEN_COLS.map((col) => {
-                  const colOrders = orders
-                    .filter((o) =>
-                      o.status === col.key &&
-                      !snoozedOrders.has(o.id)
-                    )
-                    .map((o) => ({ ...o, priority: computePriority(o) }))
-                    .sort((a, b) => b.priority.score - a.priority.score);
-
-                  return (
-                    <div key={col.key} className="flex flex-col gap-1.5">
-                      <div className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg ${col.bg} ${col.border} border`}>
-                        <div className="flex items-center gap-1.5 text-gray-800">
-                          {col.icon}
-                          <span className="font-bold text-xs">{col.label}</span>
-                        </div>
-                        <span className="text-[10px] font-bold bg-white/60 px-1.5 py-0.5 rounded-full text-gray-700">
-                          {colOrders.length}
-                        </span>
-                      </div>
-                      {colOrders.length === 0 && (
-                        <p className="text-center text-gray-600 text-[10px] py-3">Empty</p>
-                      )}
-                      {colOrders.map((order) => (
-                        <div key={order.id} className="bg-gray-900 border border-gray-800 rounded-lg p-2 space-y-1.5">
-                          <div className="flex items-center justify-between">
-                            <p className="font-bold text-xs text-white">Table {order.tableId}</p>
-                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${order.priority.color}`}>
-                              {order.priority.label}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-1 text-[10px] text-gray-400">
-                            <Clock className="h-2.5 w-2.5" />
-                            {elapsedMins(order.createdAt)}
-                          </div>
-                          <div className="space-y-0.5">
-                            {order.items.map((item) => (
-                              <div key={item.id} className="flex justify-between text-[10px] text-gray-300">
-                                <span className="truncate">{item.name}</span>
-                                <span className="text-gray-500 ml-1 shrink-0">×{item.quantity}</span>
-                              </div>
-                            ))}
-                          </div>
-                          {col.key !== 'served' && (
-                            <button
-                              onClick={() => {
-                                const next: Record<string, string> = {
-                                  pending: 'confirmed', confirmed: 'preparing', preparing: 'served',
-                                };
-                                const nextStatus = next[col.key];
-                                updateOrderStatus(order.id, nextStatus as any);
-                                // When marked Ready (served), snooze it from kitchen view
-                                if (nextStatus === 'served') {
-                                  setSnoozedOrders((prev) => new Set([...prev, order.id]));
-                                }
-                              }}
-                              className="w-full text-[10px] py-1 rounded bg-orange-500/20 hover:bg-orange-500/40 text-orange-300 font-semibold transition-all"
-                            >
-                              {col.key === 'pending' ? '✓ Confirm' : col.key === 'confirmed' ? '🔥 Cook' : '✅ Ready'}
-                            </button>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </div>
-
         {/* Pending Queue */}
         <div>
           <h2 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
@@ -853,6 +766,75 @@ export default function WaiterPanel() {
             </div>
           )}
         </div>
+        </div>{/* end left column */}
+
+          {/* ── Right column: Kitchen Dashboard always open ── */}
+          <div className="w-80 shrink-0 hidden lg:block">
+            <div className="rounded-2xl border border-gray-200 overflow-hidden sticky top-20">
+              <div className="flex items-center gap-2 px-4 py-3 bg-gray-900 text-white">
+                <LayoutGrid className="h-4 w-4 text-orange-400" />
+                <span className="font-bold text-sm">Kitchen Dashboard</span>
+                <span className="text-xs text-gray-400 ml-1">
+                  · {orders.filter((o) => !snoozedOrders.has(o.id) && (o.status === 'pending' || o.status === 'confirmed' || o.status === 'preparing')).length} active
+                </span>
+              </div>
+              <div className="bg-gray-950 p-3">
+                <div className="grid grid-cols-2 gap-2">
+                  {KITCHEN_COLS.map((col) => {
+                    const colOrders = orders
+                      .filter((o) => o.status === col.key && !snoozedOrders.has(o.id))
+                      .map((o) => ({ ...o, priority: computePriority(o) }))
+                      .sort((a, b) => b.priority.score - a.priority.score);
+                    return (
+                      <div key={col.key} className="flex flex-col gap-1.5">
+                        <div className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg ${col.bg} ${col.border} border`}>
+                          <div className="flex items-center gap-1.5 text-gray-800">
+                            {col.icon}
+                            <span className="font-bold text-xs">{col.label}</span>
+                          </div>
+                          <span className="text-[10px] font-bold bg-white/60 px-1.5 py-0.5 rounded-full text-gray-700">{colOrders.length}</span>
+                        </div>
+                        {colOrders.length === 0 && <p className="text-center text-gray-600 text-[10px] py-3">Empty</p>}
+                        {colOrders.map((order) => (
+                          <div key={order.id} className="bg-gray-900 border border-gray-800 rounded-lg p-2 space-y-1.5">
+                            <div className="flex items-center justify-between">
+                              <p className="font-bold text-xs text-white">Table {order.tableId}</p>
+                              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${order.priority.color}`}>{order.priority.label}</span>
+                            </div>
+                            <div className="flex items-center gap-1 text-[10px] text-gray-400">
+                              <Clock className="h-2.5 w-2.5" />{elapsedMins(order.createdAt)}
+                            </div>
+                            <div className="space-y-0.5">
+                              {order.items.map((item) => (
+                                <div key={item.id} className="flex justify-between text-[10px] text-gray-300">
+                                  <span className="truncate">{item.name}</span>
+                                  <span className="text-gray-500 ml-1 shrink-0">×{item.quantity}</span>
+                                </div>
+                              ))}
+                            </div>
+                            {col.key !== 'served' && (
+                              <button
+                                onClick={() => {
+                                  const next: Record<string, string> = { pending: 'confirmed', confirmed: 'preparing', preparing: 'served' };
+                                  const nextStatus = next[col.key];
+                                  updateOrderStatus(order.id, nextStatus as any);
+                                  if (nextStatus === 'served') setSnoozedOrders((prev) => new Set([...prev, order.id]));
+                                }}
+                                className="w-full text-[10px] py-1 rounded bg-orange-500/20 hover:bg-orange-500/40 text-orange-300 font-semibold transition-all"
+                              >
+                                {col.key === 'pending' ? '✓ Confirm' : col.key === 'confirmed' ? '🔥 Cook' : '✅ Ready'}
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>{/* end flex row */}
       </div>
     </div>
   );
