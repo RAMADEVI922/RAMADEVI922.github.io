@@ -92,7 +92,6 @@ function PaymentModal({ order, onCash, onOnlinePaid }: PaymentModalProps) {
   const activeProviderInfo = PROVIDERS.find((p) => p.id === activeProvider)!;
   const activeUPIId = paymentUPIIds[activeProvider] || ENV_UPI[activeProvider] || '';
   const hasQR = !!paymentQRCodes[activeProvider];
-  const perPerson = Math.ceil(order.total / splitPeople);
 
   const handleCash = async () => {
     updateOrderPaymentMethod(order.id, 'cash');
