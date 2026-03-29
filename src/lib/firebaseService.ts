@@ -602,3 +602,104 @@ export async function fetchPaymentConfig(): Promise<PaymentConfig | null> {
     return null;
   }
 }
+
+// ── Coupons ───────────────────────────────────────────────────────────────────
+export interface FirebaseCoupon {
+  id: string;
+  code: string;
+  discount: number; // percentage 1-100
+  active: boolean;
+  expiresAt?: number; // timestamp ms, optional
+  usageLimit?: number; // max uses, optional
+  usedCount: number;
+  description?: string;
+  createdAt: number;
+}
+
+const getCouponsCollection = () => db ? collection(db, 'coupons') : null;
+
+export async function fetchCoupons(): Promise<FirebaseCoupon[]> {
+  const col = getCouponsCollection();
+  if (!isFirebaseConfigured || !col) return [];
+  try {
+    const snap = await getDocs(col);
+    return snap.docs.map((d) => d.data() as FirebaseCoupon)
+      .sort((a, b) => b.createdAt - a.createdAt);
+  } catch (e) { console.warn('[fetchCoupons]', e); return []; }
+}
+
+export async function upsertCoupon(coupon: FirebaseCoupon): Promise<void> {
+  const col = getCouponsCollection();
+  if (!isFirebaseConfigured || !col) return;
+  await setDoc(doc(col, coupon.id), coupon);
+}
+
+export async function deleteCoupon(id: string): Promise<void> {
+  const col = getCouponsCollection();
+  if (!isFirebaseConfigured || !col) return;
+  await deleteDoc(doc(col, id));
+}
+
+export async function validateCoupon(code: string): Promise<FirebaseCoupon | null> {
+  const col = getCouponsCollection();
+  if (!isFirebaseConfigured || !col) return null;
+  try {
+    const snap = await getDocs(col);
+    const coupon = snap.docs.map((d) => d.data() as FirebaseCoupon)
+      .find((c) => c.code.toUpperCase() === code.toUpperCase().trim());
+    if (!coupon) return null;
+    if (!coupon.active) return null;
+    if (coupon.expiresAt && Date.now() > coupon.expiresAt) return null;
+    if (coupon.usageLimit && coupon.usedCount >= coupon.usageLimit) return null;
+    return coupon;
+  } catch (e) { return null; }
+}
+
+export async function incrementCouponUsage(id: string): Promise<void> {
+  const col = getCouponsCollection();
+  if (!isFirebaseConfigured || !col) return;
+  try {
+    const ref = doc(col, id);
+    const snap = await getDoc(ref);
+    if (snap.exists()) {
+      const data = snap.data() as FirebaseCoupon;
+      await setDoc(ref, { ...data, usedCount: (data.usedCount || 0) + 1 });
+    }
+  } catch (e) { console.warn('[incrementCouponUsage]', e); }
+}
+
+// ── Banners ───────────────────────────────────────────────────────────────────
+export interface FirebaseBanner {
+  id: string;
+  text: string;
+  subtext?: string;
+  bgColor: string;   // hex or tailwind-style
+  textColor: string;
+  emoji?: string;
+  active: boolean;
+  createdAt: number;
+}
+
+const getBannersCollection = () => db ? collection(db, 'banners') : null;
+
+export async function fetchBanners(): Promise<FirebaseBanner[]> {
+  const col = getBannersCollection();
+  if (!isFirebaseConfigured || !col) return [];
+  try {
+    const snap = await getDocs(col);
+    return snap.docs.map((d) => d.data() as FirebaseBanner)
+      .sort((a, b) => b.createdAt - a.createdAt);
+  } catch (e) { return []; }
+}
+
+export async function upsertBanner(banner: FirebaseBanner): Promise<void> {
+  const col = getBannersCollection();
+  if (!isFirebaseConfigured || !col) return;
+  await setDoc(doc(col, banner.id), banner);
+}
+
+export async function deleteBanner(id: string): Promise<void> {
+  const col = getBannersCollection();
+  if (!isFirebaseConfigured || !col) return;
+  await deleteDoc(doc(col, id));
+}

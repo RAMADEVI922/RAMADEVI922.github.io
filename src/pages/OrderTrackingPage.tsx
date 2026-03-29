@@ -5,7 +5,8 @@ import { fetchOrders, fetchNotifications, upsertNotification } from '@/lib/fireb
 import type { FirebaseOrder, FirebaseNotification } from '@/lib/firebaseService';
 import { formatOrderTime } from '@/lib/orderUtils';
 import { predictWaitTime } from '@/lib/aiPriority';
-import { CheckCircle2, Clock, ChefHat, Utensils, ShoppingBag, RefreshCw, CreditCard, Banknote, ExternalLink, Users, Star, Receipt } from 'lucide-react';
+import { CheckCircle2, Clock, ChefHat, Utensils, ShoppingBag, RefreshCw, CreditCard, Banknote, ExternalLink, Users, Star, Receipt, Tag, Loader2 } from 'lucide-react';
+import { validateCoupon, incrementCouponUsage } from '@/lib/firebaseService';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 
@@ -59,6 +60,34 @@ function PaymentModal({ order, onCash, onOnlinePaid }: PaymentModalProps) {
   const [splitPeople, setSplitPeople] = useState(order.splitCount || 2);
   const [mobileNumber, setMobileNumber] = useState('');
   const [mobileSent, setMobileSent] = useState(false);
+  const [couponCode, setCouponCode] = useState('');
+  const [couponApplied, setCouponApplied] = useState<{ code: string; discount: number; id: string } | null>(null);
+  const [couponLoading, setCouponLoading] = useState(false);
+  const [couponError, setCouponError] = useState('');
+
+  const discountedTotal = couponApplied
+    ? Math.round(order.total * (1 - couponApplied.discount / 100))
+    : order.total;
+  const perPerson = Math.ceil(discountedTotal / splitPeople);
+
+  const handleApplyCoupon = async () => {
+    if (!couponCode.trim()) return;
+    setCouponLoading(true);
+    setCouponError('');
+    try {
+      const coupon = await validateCoupon(couponCode);
+      if (!coupon) {
+        setCouponError('Invalid or expired coupon code');
+      } else {
+        setCouponApplied({ code: coupon.code, discount: coupon.discount, id: coupon.id });
+        setCouponError('');
+      }
+    } catch {
+      setCouponError('Could not validate coupon');
+    } finally {
+      setCouponLoading(false);
+    }
+  };
 
   const activeProviderInfo = PROVIDERS.find((p) => p.id === activeProvider)!;
   const activeUPIId = paymentUPIIds[activeProvider] || ENV_UPI[activeProvider] || '';
@@ -70,7 +99,8 @@ function PaymentModal({ order, onCash, onOnlinePaid }: PaymentModalProps) {
     setMode('cash_done');
     const itemLines = order.items.map((i) => `${i.name} ×${i.quantity} — ₹${(i.price * i.quantity).toLocaleString('en-IN')}`).join('\n');
     const splitNote = splitPeople > 1 ? `\nSplit: ${splitPeople} people × ₹${perPerson.toLocaleString('en-IN')}` : '';
-    const msg = `💵 CASH PAYMENT — Table ${order.tableId}\n${itemLines}\nTotal: ₹${order.total.toLocaleString('en-IN')}${splitNote}\nPlease collect cash from the customer.`;
+    const discountNote = couponApplied ? `\nCoupon: ${couponApplied.code} (${couponApplied.discount}% off) → ₹${discountedTotal.toLocaleString('en-IN')}` : '';
+    const msg = `💵 CASH PAYMENT — Table ${order.tableId}\n${itemLines}\nTotal: ₹${discountedTotal.toLocaleString('en-IN')}${discountNote}${splitNote}\nPlease collect cash from the customer.`;
     try {
       await upsertNotification({
         id: `N${order.tableId}_cash_${Date.now()}`,
@@ -80,13 +110,15 @@ function PaymentModal({ order, onCash, onOnlinePaid }: PaymentModalProps) {
         read: false,
         createdAt: Date.now(),
       });
+      if (couponApplied) await incrementCouponUsage(couponApplied.id);
     } catch (_) {}
     onCash();
   };
 
-  const handleOnlinePaid = () => {
+  const handleOnlinePaid = async () => {
     updateOrderPaymentMethod(order.id, 'online');
     confirmOnlinePayment(order.id);
+    if (couponApplied) await incrementCouponUsage(couponApplied.id).catch(() => {});
     onOnlinePaid();
   };
 
@@ -135,6 +167,18 @@ function PaymentModal({ order, onCash, onOnlinePaid }: PaymentModalProps) {
               <span>Total</span>
               <span>₹{order.total.toLocaleString('en-IN')}</span>
             </div>
+            {couponApplied && (
+              <div className="flex justify-between text-sm text-green-600 font-semibold">
+                <span>Coupon ({couponApplied.code}) -{couponApplied.discount}%</span>
+                <span>-₹{(order.total - discountedTotal).toLocaleString('en-IN')}</span>
+              </div>
+            )}
+            {couponApplied && (
+              <div className="flex justify-between font-bold text-green-700 text-base border-t border-green-200 pt-1">
+                <span>You Pay</span>
+                <span>₹{discountedTotal.toLocaleString('en-IN')}</span>
+              </div>
+            )}
             {splitPeople > 1 && (
               <div className="flex justify-between text-sm text-primary font-semibold pt-1">
                 <span>Per person ({splitPeople} people)</span>
@@ -147,6 +191,31 @@ function PaymentModal({ order, onCash, onOnlinePaid }: PaymentModalProps) {
         <div className="p-5 space-y-4">
           {mode === 'choose' && (
             <>
+              {/* Coupon code */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
+                  <Tag className="h-3.5 w-3.5" /> Have a coupon?
+                </label>
+                {couponApplied ? (
+                  <div className="flex items-center justify-between p-2.5 rounded-xl bg-green-50 border border-green-300">
+                    <span className="text-sm font-bold text-green-700">✓ {couponApplied.code} — {couponApplied.discount}% off applied!</span>
+                    <button onClick={() => setCouponApplied(null)} className="text-xs text-green-600 underline">Remove</button>
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <input
+                      value={couponCode}
+                      onChange={(e) => { setCouponCode(e.target.value.toUpperCase()); setCouponError(''); }}
+                      placeholder="Enter coupon code"
+                      className="flex-1 border border-border rounded-xl px-3 py-2 text-sm font-mono font-bold focus:ring-2 focus:ring-primary/50 outline-none"
+                    />
+                    <Button size="sm" variant="outline" onClick={handleApplyCoupon} disabled={couponLoading || !couponCode.trim()} className="shrink-0">
+                      {couponLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Apply'}
+                    </Button>
+                  </div>
+                )}
+                {couponError && <p className="text-xs text-red-500">{couponError}</p>}
+              </div>
               {/* Bill split toggle */}
               <button
                 onClick={() => setMode('split')}

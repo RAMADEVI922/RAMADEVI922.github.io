@@ -5,7 +5,8 @@ import { useRestaurantStore, type MenuItem } from '@/store/restaurantStore';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { ConfirmOrderButton } from '@/components/ConfirmOrderButton';
-import { upsertNotification as upsertNotificationDirect } from '@/lib/firebaseService';
+import { upsertNotification as upsertNotificationDirect, fetchBanners } from '@/lib/firebaseService';
+import type { FirebaseBanner } from '@/lib/firebaseService';
 
 function MenuItemCard({ item }: { item: MenuItem }) {
   const { addToCart, cart, updateCartQuantity, menuItemImages } = useRestaurantStore();
@@ -182,6 +183,19 @@ export default function CustomerMenu() {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const vegRef = useRef<HTMLDivElement>(null);
   const nonVegRef = useRef<HTMLDivElement>(null);
+  const [banners, setBanners] = useState<FirebaseBanner[]>([]);
+  const [bannerIdx, setBannerIdx] = useState(0);
+
+  useEffect(() => {
+    fetchBanners().then((b) => setBanners(b.filter((x) => x.active))).catch(() => {});
+  }, []);
+
+  // Auto-rotate banners every 4s
+  useEffect(() => {
+    if (banners.length <= 1) return;
+    const t = setInterval(() => setBannerIdx((i) => (i + 1) % banners.length), 4000);
+    return () => clearInterval(t);
+  }, [banners.length]);
 
   // Set current table when the route changes
   useEffect(() => {
@@ -288,8 +302,7 @@ export default function CustomerMenu() {
         )}
         <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Table {tableId}</p>
         <div className="flex items-center justify-between mt-1">
-          <h1 className="text-2xl font-bold">Menu</h1>
-          <div className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${
+          <h1 className="text-2xl font-bold">Menu</h1>          <div className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${
             sessionType === 'active' 
               ? 'bg-blue-500/10 text-blue-600' 
               : 'bg-orange-500/10 text-orange-600'
@@ -298,6 +311,42 @@ export default function CustomerMenu() {
           </div>
         </div>
       </div>
+
+      {/* ── Promotional Banners ── */}
+      {banners.length > 0 && (
+        <div className="px-4 mb-2">
+          <style>{`
+            @keyframes banner-slide {
+              0%   { opacity: 0; transform: translateY(-6px); }
+              10%  { opacity: 1; transform: translateY(0); }
+              85%  { opacity: 1; transform: translateY(0); }
+              100% { opacity: 0; transform: translateY(6px); }
+            }
+            .banner-anim { animation: banner-slide 4s ease-in-out; }
+          `}</style>
+          <div
+            key={bannerIdx}
+            className="banner-anim rounded-2xl px-4 py-3 text-center shadow-sm"
+            style={{ backgroundColor: banners[bannerIdx].bgColor, color: banners[bannerIdx].textColor }}
+          >
+            <span className="text-xl mr-2">{banners[bannerIdx].emoji}</span>
+            <span className="font-bold text-sm">{banners[bannerIdx].text}</span>
+            {banners[bannerIdx].subtext && (
+              <span className="text-xs opacity-80 ml-2">{banners[bannerIdx].subtext}</span>
+            )}
+          </div>
+          {banners.length > 1 && (
+            <div className="flex justify-center gap-1 mt-1.5">
+              {banners.map((_, i) => (
+                <button key={i} onClick={() => setBannerIdx(i)}
+                  className="h-1.5 rounded-full transition-all"
+                  style={{ width: i === bannerIdx ? 16 : 6, backgroundColor: i === bannerIdx ? banners[bannerIdx].bgColor : '#d1d5db' }}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Quick actions */}
       <div className="flex gap-2 px-4 py-3">

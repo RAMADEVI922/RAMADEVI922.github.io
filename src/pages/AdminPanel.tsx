@@ -2,10 +2,11 @@ import { useState, useEffect } from 'react';
 import { useRestaurantStore } from '@/store/restaurantStore';
 import { clearAdminSession, getAdminSession, createAdmin, fetchAdmins, deleteAdmin } from '@/lib/adminAuth';
 import type { AdminRecord } from '@/lib/adminAuth';
-import { fetchWaiters, upsertWaiter } from '@/lib/firebaseService';
+import { fetchWaiters, upsertWaiter, fetchCoupons, upsertCoupon, deleteCoupon, fetchBanners, upsertBanner, deleteBanner } from '@/lib/firebaseService';
+import type { FirebaseCoupon, FirebaseBanner } from '@/lib/firebaseService';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
-import { Plus, Trash2, LayoutDashboard, UtensilsCrossed, Users, Receipt, LogOut, QrCode, ListOrdered, Upload, X, ShieldCheck, Loader2 } from 'lucide-react';
+import { Plus, Trash2, LayoutDashboard, UtensilsCrossed, Users, Receipt, LogOut, QrCode, ListOrdered, Upload, X, ShieldCheck, Loader2, Tag, Megaphone, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { Link, useNavigate } from 'react-router-dom';
 
@@ -13,7 +14,7 @@ import MenuManagement from '@/components/admin/MenuManagement';
 import TableManagement from '@/components/admin/TableManagement';
 import OrdersQueue from '@/components/admin/OrdersQueue';
 
-type AdminTab = 'dashboard' | 'menu' | 'tables' | 'orders-queue' | 'waiters' | 'bills' | 'payment-qr' | 'admins';
+type AdminTab = 'dashboard' | 'menu' | 'tables' | 'orders-queue' | 'waiters' | 'bills' | 'payment-qr' | 'coupons' | 'banners' | 'admins';
 
 const navItems: { id: AdminTab; label: string; icon: React.ReactNode }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="h-4 w-4" /> },
@@ -23,6 +24,8 @@ const navItems: { id: AdminTab; label: string; icon: React.ReactNode }[] = [
   { id: 'waiters', label: 'Waiters', icon: <Users className="h-4 w-4" /> },
   { id: 'bills', label: 'Bills', icon: <Receipt className="h-4 w-4" /> },
   { id: 'payment-qr', label: 'Payment QR', icon: <QrCode className="h-4 w-4" /> },
+  { id: 'coupons', label: 'Coupons', icon: <Tag className="h-4 w-4" /> },
+  { id: 'banners', label: 'Banners', icon: <Megaphone className="h-4 w-4" /> },
   { id: 'admins', label: 'Admins', icon: <ShieldCheck className="h-4 w-4" /> },
 ];
 
@@ -635,6 +638,295 @@ function PaymentQRManagement() {
   );
 }
 
+function CouponManagement() {
+  const [coupons, setCoupons] = useState<FirebaseCoupon[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [code, setCode] = useState('');
+  const [discount, setDiscount] = useState('');
+  const [description, setDescription] = useState('');
+  const [expiryDate, setExpiryDate] = useState('');
+  const [usageLimit, setUsageLimit] = useState('');
+  const [adding, setAdding] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    setCoupons(await fetchCoupons());
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  const generateCode = () => {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    const code = Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+    setCode(code);
+  };
+
+  const handleAdd = async () => {
+    if (!code.trim() || !discount) { toast.error('Code and discount required'); return; }
+    const d = parseInt(discount);
+    if (isNaN(d) || d < 1 || d > 100) { toast.error('Discount must be 1–100%'); return; }
+    setAdding(true);
+    try {
+      const coupon: FirebaseCoupon = {
+        id: `CPN_${Date.now()}`,
+        code: code.trim().toUpperCase(),
+        discount: d,
+        active: true,
+        usedCount: 0,
+        description: description.trim() || undefined,
+        expiresAt: expiryDate ? new Date(expiryDate).getTime() : undefined,
+        usageLimit: usageLimit ? parseInt(usageLimit) : undefined,
+        createdAt: Date.now(),
+      };
+      await upsertCoupon(coupon);
+      toast.success(`Coupon ${coupon.code} created!`);
+      setCode(''); setDiscount(''); setDescription(''); setExpiryDate(''); setUsageLimit('');
+      await load();
+    } catch (e: any) {
+      toast.error('Failed to create coupon');
+    } finally { setAdding(false); }
+  };
+
+  const handleToggle = async (coupon: FirebaseCoupon) => {
+    await upsertCoupon({ ...coupon, active: !coupon.active });
+    setCoupons((prev) => prev.map((c) => c.id === coupon.id ? { ...c, active: !c.active } : c));
+  };
+
+  const handleDelete = async (id: string) => {
+    await deleteCoupon(id);
+    setCoupons((prev) => prev.filter((c) => c.id !== id));
+    toast.success('Coupon deleted');
+  };
+
+  return (
+    <div className="space-y-8">
+      <div>
+        <h2 className="text-2xl font-extrabold">Coupon Codes</h2>
+        <p className="text-sm text-muted-foreground mt-1">Create discount coupons for customers to use at payment</p>
+      </div>
+
+      {/* Create coupon */}
+      <div className="bg-card border border-border rounded-2xl p-6 space-y-4">
+        <h3 className="font-bold flex items-center gap-2"><Plus className="h-4 w-4 text-primary" /> Create Coupon</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-muted-foreground">Coupon Code</label>
+            <div className="flex gap-2">
+              <input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder="e.g. SAVE20"
+                className="flex-1 border border-border rounded-xl px-3 py-2 text-sm font-mono font-bold focus:ring-2 focus:ring-primary/50 outline-none" />
+              <Button variant="outline" size="sm" onClick={generateCode} className="shrink-0">Auto</Button>
+            </div>
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-muted-foreground">Discount %</label>
+            <input type="number" min="1" max="100" value={discount} onChange={(e) => setDiscount(e.target.value)}
+              placeholder="e.g. 20"
+              className="w-full border border-border rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-primary/50 outline-none" />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-muted-foreground">Description (optional)</label>
+            <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="e.g. Weekend special"
+              className="w-full border border-border rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-primary/50 outline-none" />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-muted-foreground">Expiry Date (optional)</label>
+            <input type="date" value={expiryDate} onChange={(e) => setExpiryDate(e.target.value)}
+              className="w-full border border-border rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-primary/50 outline-none" />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-muted-foreground">Usage Limit (optional)</label>
+            <input type="number" min="1" value={usageLimit} onChange={(e) => setUsageLimit(e.target.value)} placeholder="Unlimited"
+              className="w-full border border-border rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-primary/50 outline-none" />
+          </div>
+        </div>
+        <Button onClick={handleAdd} disabled={adding} className="gap-2">
+          {adding ? <Loader2 className="h-4 w-4 animate-spin" /> : <Tag className="h-4 w-4" />}
+          Create Coupon
+        </Button>
+      </div>
+
+      {/* Coupon list */}
+      <div className="bg-card border border-border rounded-2xl p-6 space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="font-bold">Active Coupons ({coupons.length})</h3>
+          <Button variant="outline" size="sm" onClick={load} disabled={loading} className="gap-1.5">
+            {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />} Refresh
+          </Button>
+        </div>
+        {loading ? <p className="text-sm text-muted-foreground text-center py-4">Loading...</p> :
+         coupons.length === 0 ? <p className="text-sm text-muted-foreground text-center py-4">No coupons yet.</p> :
+         coupons.map((c) => (
+          <div key={c.id} className="flex items-center justify-between p-3 rounded-xl border border-border bg-muted/10">
+            <div className="flex items-center gap-3">
+              <div className={`px-3 py-1 rounded-lg font-mono font-bold text-sm ${c.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                {c.code}
+              </div>
+              <div>
+                <p className="font-semibold text-sm">{c.discount}% off {c.description ? `— ${c.description}` : ''}</p>
+                <p className="text-xs text-muted-foreground">
+                  Used {c.usedCount}{c.usageLimit ? `/${c.usageLimit}` : ''} times
+                  {c.expiresAt ? ` · Expires ${new Date(c.expiresAt).toLocaleDateString('en-IN')}` : ''}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Switch checked={c.active} onCheckedChange={() => handleToggle(c)} />
+              <Button variant="ghost" size="sm" onClick={() => handleDelete(c.id)} className="text-red-500 hover:bg-red-50">
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const BANNER_PRESETS = [
+  { bgColor: '#f97316', textColor: '#ffffff', emoji: '🎉' },
+  { bgColor: '#7c3aed', textColor: '#ffffff', emoji: '✨' },
+  { bgColor: '#0ea5e9', textColor: '#ffffff', emoji: '🍽️' },
+  { bgColor: '#16a34a', textColor: '#ffffff', emoji: '🎊' },
+  { bgColor: '#dc2626', textColor: '#ffffff', emoji: '🔥' },
+];
+
+function BannerManagement() {
+  const [banners, setBanners] = useState<FirebaseBanner[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [text, setText] = useState('');
+  const [subtext, setSubtext] = useState('');
+  const [emoji, setEmoji] = useState('🎉');
+  const [bgColor, setBgColor] = useState('#f97316');
+  const [textColor, setTextColor] = useState('#ffffff');
+  const [adding, setAdding] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    setBanners(await fetchBanners());
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  const handleAdd = async () => {
+    if (!text.trim()) { toast.error('Banner text required'); return; }
+    setAdding(true);
+    try {
+      const banner: FirebaseBanner = {
+        id: `BNR_${Date.now()}`,
+        text: text.trim(),
+        subtext: subtext.trim() || undefined,
+        bgColor, textColor, emoji,
+        active: true,
+        createdAt: Date.now(),
+      };
+      await upsertBanner(banner);
+      toast.success('Banner deployed!');
+      setText(''); setSubtext('');
+      await load();
+    } catch (e) { toast.error('Failed to create banner'); }
+    finally { setAdding(false); }
+  };
+
+  const handleToggle = async (banner: FirebaseBanner) => {
+    await upsertBanner({ ...banner, active: !banner.active });
+    setBanners((prev) => prev.map((b) => b.id === banner.id ? { ...b, active: !b.active } : b));
+  };
+
+  const handleDelete = async (id: string) => {
+    await deleteBanner(id);
+    setBanners((prev) => prev.filter((b) => b.id !== id));
+    toast.success('Banner removed');
+  };
+
+  return (
+    <div className="space-y-8">
+      <div>
+        <h2 className="text-2xl font-extrabold">Promotional Banners</h2>
+        <p className="text-sm text-muted-foreground mt-1">Create banners that appear on the customer menu page</p>
+      </div>
+
+      {/* Create banner */}
+      <div className="bg-card border border-border rounded-2xl p-6 space-y-4">
+        <h3 className="font-bold flex items-center gap-2"><Megaphone className="h-4 w-4 text-primary" /> Create Banner</h3>
+
+        {/* Preview */}
+        <div className="rounded-xl p-4 text-center" style={{ backgroundColor: bgColor, color: textColor }}>
+          <p className="text-2xl mb-1">{emoji}</p>
+          <p className="font-bold text-lg">{text || 'Banner preview'}</p>
+          {subtext && <p className="text-sm opacity-80 mt-0.5">{subtext}</p>}
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-muted-foreground">Main Text</label>
+            <input value={text} onChange={(e) => setText(e.target.value)} placeholder="e.g. 20% OFF this weekend!"
+              className="w-full border border-border rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-primary/50 outline-none" />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-muted-foreground">Sub Text (optional)</label>
+            <input value={subtext} onChange={(e) => setSubtext(e.target.value)} placeholder="e.g. Use code SAVE20"
+              className="w-full border border-border rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-primary/50 outline-none" />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-muted-foreground">Emoji</label>
+            <input value={emoji} onChange={(e) => setEmoji(e.target.value)} placeholder="🎉"
+              className="w-full border border-border rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-primary/50 outline-none" />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-muted-foreground">Color Presets</label>
+            <div className="flex gap-2">
+              {BANNER_PRESETS.map((p, i) => (
+                <button key={i} onClick={() => { setBgColor(p.bgColor); setTextColor(p.textColor); setEmoji(p.emoji); }}
+                  className="h-8 w-8 rounded-full border-2 border-white shadow-sm transition-transform hover:scale-110"
+                  style={{ backgroundColor: p.bgColor }} />
+              ))}
+              <input type="color" value={bgColor} onChange={(e) => setBgColor(e.target.value)}
+                className="h-8 w-8 rounded-full cursor-pointer border border-border" title="Custom color" />
+            </div>
+          </div>
+        </div>
+        <Button onClick={handleAdd} disabled={adding} className="gap-2">
+          {adding ? <Loader2 className="h-4 w-4 animate-spin" /> : <Megaphone className="h-4 w-4" />}
+          Deploy Banner
+        </Button>
+      </div>
+
+      {/* Banner list */}
+      <div className="bg-card border border-border rounded-2xl p-6 space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="font-bold">Banners ({banners.length})</h3>
+          <Button variant="outline" size="sm" onClick={load} disabled={loading} className="gap-1.5">
+            {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />} Refresh
+          </Button>
+        </div>
+        {loading ? <p className="text-sm text-muted-foreground text-center py-4">Loading...</p> :
+         banners.length === 0 ? <p className="text-sm text-muted-foreground text-center py-4">No banners yet.</p> :
+         banners.map((b) => (
+          <div key={b.id} className="flex items-center justify-between p-3 rounded-xl border border-border overflow-hidden">
+            <div className="flex items-center gap-3 flex-1 min-w-0">
+              <div className="h-10 w-10 rounded-lg flex items-center justify-center text-xl shrink-0"
+                style={{ backgroundColor: b.bgColor }}>{b.emoji}</div>
+              <div className="min-w-0">
+                <p className="font-semibold text-sm truncate">{b.text}</p>
+                {b.subtext && <p className="text-xs text-muted-foreground truncate">{b.subtext}</p>}
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0 ml-2">
+              <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${b.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                {b.active ? 'Live' : 'Off'}
+              </span>
+              <Switch checked={b.active} onCheckedChange={() => handleToggle(b)} />
+              <Button variant="ghost" size="sm" onClick={() => handleDelete(b.id)} className="text-red-500 hover:bg-red-50">
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function AdminManagement() {
   const session = getAdminSession();
   const [admins, setAdmins] = useState<AdminRecord[]>([]);
@@ -826,6 +1118,8 @@ export default function AdminPanel() {
           {activeTab === 'waiters' && <WaiterManagement />}
           {activeTab === 'bills' && <BillManagement />}
           {activeTab === 'payment-qr' && <PaymentQRManagement />}
+          {activeTab === 'coupons' && <CouponManagement />}
+          {activeTab === 'banners' && <BannerManagement />}
           {activeTab === 'admins' && <AdminManagement />}
         </div>
       </main>
