@@ -609,10 +609,11 @@ export interface FirebaseCoupon {
   code: string;
   discount: number; // percentage 1-100
   active: boolean;
-  expiresAt?: number; // timestamp ms, optional
-  usageLimit?: number; // max uses, optional
+  expiresAt?: number;
+  usageLimit?: number;
   usedCount: number;
   description?: string;
+  minOrderAmount?: number; // minimum order total to apply
   createdAt: number;
 }
 
@@ -640,17 +641,20 @@ export async function deleteCoupon(id: string): Promise<void> {
   await deleteDoc(doc(col, id));
 }
 
-export async function validateCoupon(code: string): Promise<FirebaseCoupon | null> {
+export async function validateCoupon(code: string, orderTotal?: number): Promise<FirebaseCoupon | { error: string } | null> {
   const col = getCouponsCollection();
   if (!isFirebaseConfigured || !col) return null;
   try {
     const snap = await getDocs(col);
     const coupon = snap.docs.map((d) => d.data() as FirebaseCoupon)
       .find((c) => c.code.toUpperCase() === code.toUpperCase().trim());
-    if (!coupon) return null;
-    if (!coupon.active) return null;
-    if (coupon.expiresAt && Date.now() > coupon.expiresAt) return null;
-    if (coupon.usageLimit && coupon.usedCount >= coupon.usageLimit) return null;
+    if (!coupon) return { error: 'Invalid coupon code' };
+    if (!coupon.active) return { error: 'This coupon is no longer active' };
+    if (coupon.expiresAt && Date.now() > coupon.expiresAt) return { error: 'This coupon has expired' };
+    if (coupon.usageLimit && coupon.usedCount >= coupon.usageLimit) return { error: 'Coupon usage limit reached' };
+    if (coupon.minOrderAmount && orderTotal !== undefined && orderTotal < coupon.minOrderAmount) {
+      return { error: `Minimum order ₹${coupon.minOrderAmount.toLocaleString('en-IN')} required for this coupon` };
+    }
     return coupon;
   } catch (e) { return null; }
 }

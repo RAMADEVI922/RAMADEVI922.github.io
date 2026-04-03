@@ -646,6 +646,7 @@ function CouponManagement() {
   const [description, setDescription] = useState('');
   const [expiryDate, setExpiryDate] = useState('');
   const [usageLimit, setUsageLimit] = useState('');
+  const [minOrder, setMinOrder] = useState('');
   const [adding, setAdding] = useState(false);
 
   const load = async () => {
@@ -676,11 +677,12 @@ function CouponManagement() {
         description: description.trim() || undefined,
         expiresAt: expiryDate ? new Date(expiryDate).getTime() : undefined,
         usageLimit: usageLimit ? parseInt(usageLimit) : undefined,
+        minOrderAmount: minOrder ? parseInt(minOrder) : undefined,
         createdAt: Date.now(),
       };
       await upsertCoupon(coupon);
       toast.success(`Coupon ${coupon.code} created!`);
-      setCode(''); setDiscount(''); setDescription(''); setExpiryDate(''); setUsageLimit('');
+      setCode(''); setDiscount(''); setDescription(''); setExpiryDate(''); setUsageLimit(''); setMinOrder('');
       await load();
     } catch (e: any) {
       toast.error('Failed to create coupon');
@@ -738,6 +740,11 @@ function CouponManagement() {
             <input type="number" min="1" value={usageLimit} onChange={(e) => setUsageLimit(e.target.value)} placeholder="Unlimited"
               className="w-full border border-border rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-primary/50 outline-none" />
           </div>
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-muted-foreground">Min Order Amount ₹ (optional)</label>
+            <input type="number" min="0" value={minOrder} onChange={(e) => setMinOrder(e.target.value)} placeholder="e.g. 200 or 500"
+              className="w-full border border-border rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-primary/50 outline-none" />
+          </div>
         </div>
         <Button onClick={handleAdd} disabled={adding} className="gap-2">
           {adding ? <Loader2 className="h-4 w-4 animate-spin" /> : <Tag className="h-4 w-4" />}
@@ -765,6 +772,7 @@ function CouponManagement() {
                 <p className="font-semibold text-sm">{c.discount}% off {c.description ? `— ${c.description}` : ''}</p>
                 <p className="text-xs text-muted-foreground">
                   Used {c.usedCount}{c.usageLimit ? `/${c.usageLimit}` : ''} times
+                  {c.minOrderAmount ? ` · Min ₹${c.minOrderAmount}` : ''}
                   {c.expiresAt ? ` · Expires ${new Date(c.expiresAt).toLocaleDateString('en-IN')}` : ''}
                 </p>
               </div>
@@ -935,7 +943,7 @@ function AdminManagement() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [passcode, setPasscode] = useState('');
-  const [confirm, setConfirm] = useState('');
+  const [confirmPasscode, setConfirmPasscode] = useState('');
   const [adding, setAdding] = useState(false);
 
   const load = async () => {
@@ -958,13 +966,13 @@ function AdminManagement() {
     if (!name.trim() || !email.trim() || passcode.length < 4) {
       toast.error('Fill all fields with a 4-digit passcode'); return;
     }
-    if (passcode !== confirm) { toast.error('Passcodes do not match'); return; }
+    if (passcode !== confirmPasscode) { toast.error('Passcodes do not match'); return; }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { toast.error('Invalid email'); return; }
     setAdding(true);
     try {
       await createAdmin(email.trim(), passcode, name.trim());
       toast.success(`Admin "${name}" added`);
-      setName(''); setEmail(''); setPasscode(''); setConfirm('');
+      setName(''); setEmail(''); setPasscode(''); setConfirmPasscode('');
       await load();
     } catch (e: any) {
       toast.error(e?.message || 'Failed to add admin');
@@ -975,7 +983,7 @@ function AdminManagement() {
 
   const handleDelete = async (admin: AdminRecord) => {
     if (admin.email === session?.email) { toast.error("You can't delete your own account"); return; }
-    if (!confirm(`Delete admin "${admin.name}"?`)) return;
+    if (!window.confirm(`Delete admin "${admin.name}"?`)) return;
     try {
       await deleteAdmin(admin.id);
       toast.success(`Removed ${admin.name}`);
@@ -1035,8 +1043,8 @@ function AdminManagement() {
               type="password"
               inputMode="numeric"
               maxLength={4}
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value.replace(/\D/g, '').slice(0, 4))}
+              value={confirmPasscode}
+              onChange={(e) => setConfirmPasscode(e.target.value.replace(/\D/g, '').slice(0, 4))}
               placeholder="••••"
               className="w-full border border-border rounded-xl px-3 py-2 text-sm text-center tracking-[0.5em] font-bold focus:ring-2 focus:ring-primary/50 outline-none"
             />

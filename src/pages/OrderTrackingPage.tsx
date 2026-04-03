@@ -75,11 +75,13 @@ function PaymentModal({ order, onCash, onOnlinePaid }: PaymentModalProps) {
     setCouponLoading(true);
     setCouponError('');
     try {
-      const coupon = await validateCoupon(couponCode);
-      if (!coupon) {
-        setCouponError('Invalid or expired coupon code');
+      const result = await validateCoupon(couponCode, order.total);
+      if (!result) {
+        setCouponError('Could not validate coupon — check connection');
+      } else if ('error' in result) {
+        setCouponError(result.error);
       } else {
-        setCouponApplied({ code: coupon.code, discount: coupon.discount, id: coupon.id });
+        setCouponApplied({ code: result.code, discount: result.discount, id: result.id });
         setCouponError('');
       }
     } catch {
@@ -408,6 +410,7 @@ export default function OrderTrackingPage() {
   const { orders, setOrders, confirmOnlinePayment, updateOrderPaymentMethod, setSplitCount } = useRestaurantStore();
   const [refreshing, setRefreshing] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [showAddMorePrompt, setShowAddMorePrompt] = useState(false);
   const [paymentDone, setPaymentDone] = useState(false);
   const prevStatusRef = useRef<OrderStatus | null>(null);
   const seenPaymentRequestRef = useRef(false);
@@ -447,7 +450,7 @@ export default function OrderTrackingPage() {
             (a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
           )[0];
 
-          if (latestOrder && latestOrder.status === 'served') {
+          if (latestOrder && (latestOrder.status === 'served' || latestOrder.status === 'delivered')) {
             const orderTime = new Date(latestOrder.createdAt).getTime();
             const payReq = (rawNotifs as FirebaseNotification[]).find(
               (n) =>
@@ -458,7 +461,8 @@ export default function OrderTrackingPage() {
             );
             if (payReq) {
               seenPaymentRequestRef.current = true;
-              setShowPaymentModal(true);
+              // Show "add more items?" prompt first, then payment modal
+              setShowAddMorePrompt(true);
               try {
                 await upsertNotification({ ...payReq, read: true });
               } catch (_) {}
@@ -565,6 +569,40 @@ export default function OrderTrackingPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-orange-50 to-background">
+      {/* Add more items prompt */}
+      {showAddMorePrompt && !showPaymentModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl shadow-2xl p-6 space-y-5">
+            <div className="text-center">
+              <div className="text-4xl mb-2">🍽️</div>
+              <p className="text-xl font-bold">Food is on the way!</p>
+              <p className="text-muted-foreground text-sm mt-1">Your waiter will arrive in a few minutes.</p>
+            </div>
+            <div className="bg-orange-50 border border-orange-200 rounded-2xl p-4 text-center">
+              <p className="font-semibold text-sm">Would you like to add more items?</p>
+              <p className="text-xs text-muted-foreground mt-1">You can order more before paying</p>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Button
+                variant="outline"
+                onClick={() => navigate(`/menu/${tableId}`)}
+                className="gap-2"
+              >
+                <ShoppingBag className="h-4 w-4" />
+                Add More Items
+              </Button>
+              <Button
+                onClick={() => { setShowAddMorePrompt(false); setShowPaymentModal(true); }}
+                className="gap-2 bg-primary text-white"
+              >
+                <CreditCard className="h-4 w-4" />
+                Pay Now
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Payment modal overlay */}
       {showPaymentModal && order && (
         <PaymentModal
@@ -593,9 +631,9 @@ export default function OrderTrackingPage() {
         <div className="text-center">
           {isServed ? (
             <>
-              <div className="text-5xl mb-3">🍽️</div>
-              <p className="text-2xl font-bold text-green-600">Food is Ready!</p>
-              <p className="text-muted-foreground mt-1">Your waiter is bringing it to you</p>
+              <div className="text-5xl mb-3">🚶</div>
+              <p className="text-2xl font-bold text-green-600">Waiter is Coming!</p>
+              <p className="text-muted-foreground mt-1">Your food is ready — waiter will arrive shortly</p>
             </>
           ) : order.status === 'preparing' ? (
             <>

@@ -188,6 +188,11 @@ export default function CustomerMenu() {
 
   useEffect(() => {
     fetchBanners().then((b) => setBanners(b.filter((x) => x.active))).catch(() => {});
+    // Re-fetch every 30s so banner changes reflect without page reload
+    const t = setInterval(() => {
+      fetchBanners().then((b) => setBanners(b.filter((x) => x.active))).catch(() => {});
+    }, 30000);
+    return () => clearInterval(t);
   }, []);
 
   // Auto-rotate banners every 4s
