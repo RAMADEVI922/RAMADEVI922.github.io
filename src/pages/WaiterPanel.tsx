@@ -444,20 +444,51 @@ export default function WaiterPanel() {
               }
 
               return (
-                <div key={n.id} className={`flex items-center justify-between p-3 rounded-xl border ${
+                <div key={n.id} className={`rounded-xl border overflow-hidden ${
                   n.type === 'call_waiter' ? 'bg-yellow-50 border-yellow-200' :
                   n.type === 'request_bill' ? 'bg-blue-50 border-blue-200' :
                   n.type === 'feedback' ? 'bg-purple-50 border-purple-200' :
                   'bg-background border-border'
                 }`}>
-                  <div className="flex items-start gap-3 flex-1 min-w-0">
-                    {n.type === 'call_waiter' ? <Bell className="h-4 w-4 text-yellow-600 shrink-0 mt-0.5" /> :
-                     n.type === 'request_bill' ? <Receipt className="h-4 w-4 text-blue-600 shrink-0 mt-0.5" /> :
-                     n.type === 'feedback' ? <Star className="h-4 w-4 text-purple-600 shrink-0 mt-0.5" /> :
-                     <UtensilsCrossed className="h-4 w-4 shrink-0 mt-0.5" />}
-                    <span className="text-sm font-medium whitespace-pre-line">{n.message}</span>
+                  <div className="flex items-center justify-between p-3">
+                    <div className="flex items-start gap-3 flex-1 min-w-0">
+                      {n.type === 'call_waiter' ? <Bell className="h-4 w-4 text-yellow-600 shrink-0 mt-0.5" /> :
+                       n.type === 'request_bill' ? <Receipt className="h-4 w-4 text-blue-600 shrink-0 mt-0.5" /> :
+                       n.type === 'feedback' ? <Star className="h-4 w-4 text-purple-600 shrink-0 mt-0.5" /> :
+                       <UtensilsCrossed className="h-4 w-4 shrink-0 mt-0.5" />}
+                      <span className="text-sm font-medium whitespace-pre-line">{n.message}</span>
+                    </div>
+                    <Button variant="ghost" size="sm" className="shrink-0 ml-2" onClick={() => markNotificationRead(n.id)}>Dismiss</Button>
                   </div>
-                  <Button variant="ghost" size="sm" className="shrink-0 ml-2" onClick={() => markNotificationRead(n.id)}>Dismiss</Button>
+                  {/* WhatsApp + SMS buttons for bill requests with mobile number */}
+                  {n.type === 'request_bill' && (() => {
+                    const mobileMatch = n.message.match(/Mobile:\s*([6-9]\d{9})/);
+                    const totalMatch = n.message.match(/Total:\s*₹([\d,]+)/);
+                    if (!mobileMatch) return null;
+                    const mobile = mobileMatch[1];
+                    const total = totalMatch ? totalMatch[1] : '';
+                    // Find the order for this table to build bill text
+                    const billOrder = orders.filter((o) => o.tableId === n.tableId)
+                      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+                    const itemLines = billOrder
+                      ? billOrder.items.map((i) => `${i.name} x${i.quantity} - Rs.${(i.price * i.quantity).toLocaleString('en-IN')}`).join('\n')
+                      : '';
+                    const billText = `*Bill - Table ${n.tableId}*\n${itemLines}\n*Total: Rs.${total}*\nThank you for dining with us!`;
+                    const waMsg = `https://wa.me/91${mobile}?text=${encodeURIComponent(billText)}`;
+                    const smsMsg = `sms:${mobile}?body=${encodeURIComponent(billText)}`;
+                    return (
+                      <div className="flex gap-2 px-3 pb-3">
+                        <a href={waMsg} target="_blank" rel="noopener noreferrer"
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-green-500 hover:bg-green-600 text-white text-xs font-bold transition-all">
+                          <span>📱</span> WhatsApp Bill
+                        </a>
+                        <a href={smsMsg}
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-blue-500 hover:bg-blue-600 text-white text-xs font-bold transition-all">
+                          <span>💬</span> Send SMS
+                        </a>
+                      </div>
+                    );
+                  })()}
                 </div>
               );
             })}
