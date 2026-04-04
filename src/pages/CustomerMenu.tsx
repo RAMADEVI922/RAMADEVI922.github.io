@@ -177,6 +177,7 @@ export default function CustomerMenu() {
   const { tableId } = useParams<{ tableId: string }>();
   const [searchParams] = useSearchParams();
   const sessionType = searchParams.get('type') || 'active';
+  const existingSid = searchParams.get('sid');
   const isDevMode = searchParams.get('dev') === 'true' || window.location.hostname === 'localhost';
   const { menuItems, cart, cartTotal, setCurrentTableId, addNotification, categoryImages, menuItemImages, placeOrder, orders } = useRestaurantStore();
   const [cartOpen, setCartOpen] = useState(false);
@@ -190,9 +191,10 @@ export default function CustomerMenu() {
   // Claim the table on mount — block if already occupied by another session
   useEffect(() => {
     if (!tableId) return;
-    // Always generate a fresh session ID on each new page load
     const key = `session_${tableId}`;
-    const id = `S${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    // If returning from "Add More Items", reuse the existing session ID
+    let id = existingSid || sessionStorage.getItem(key);
+    if (!id) { id = `S${Date.now()}_${Math.random().toString(36).slice(2)}`; }
     sessionStorage.setItem(key, id);
     claimTableSession(tableId, id).then((result) => {
       if (result === 'occupied') setTableBlocked(true);

@@ -585,7 +585,12 @@ export default function OrderTrackingPage() {
             <div className="grid grid-cols-2 gap-3">
               <Button
                 variant="outline"
-                onClick={() => navigate(`/menu/${tableId}`)}
+                onClick={() => {
+                  // Pass session token so the menu page doesn't get blocked
+                  const sessionKey = `session_${tableId}`;
+                  const existingSession = sessionStorage.getItem(sessionKey);
+                  navigate(`/menu/${tableId}${existingSession ? `?sid=${existingSession}` : ''}`);
+                }}
                 className="gap-2"
               >
                 <ShoppingBag className="h-4 w-4" />

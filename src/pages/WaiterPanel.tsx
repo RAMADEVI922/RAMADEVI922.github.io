@@ -410,6 +410,12 @@ export default function WaiterPanel() {
                 ) ?? orders.filter((o) => o.tableId === n.tableId).sort(
                   (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
                 )[0];
+
+                // Parse the actual total from the notification message (includes coupon discount)
+                const msgTotalMatch = n.message.match(/Total:\s*₹([\d,]+)/);
+                const msgTotal = msgTotalMatch ? msgTotalMatch[1] : null;
+                const couponMatch = n.message.match(/Coupon:\s*(\S+)\s*\((\d+)%/);
+
                 return (
                   <div key={n.id} className="rounded-xl border-2 border-green-400 bg-green-50 overflow-hidden">
                     <div className="flex items-center justify-between px-4 py-3 bg-green-500 text-white">
@@ -431,9 +437,15 @@ export default function WaiterPanel() {
                             <span className="font-medium">₹{(item.price * item.quantity).toLocaleString('en-IN')}</span>
                           </div>
                         ))}
+                        {couponMatch && (
+                          <div className="flex justify-between text-sm text-green-700 pt-1">
+                            <span>Coupon {couponMatch[1]} ({couponMatch[2]}% off)</span>
+                            <span className="font-semibold">-₹{(cashOrder.total - parseInt((msgTotal || '0').replace(/,/g, ''))).toLocaleString('en-IN')}</span>
+                          </div>
+                        )}
                         <div className="flex justify-between font-bold text-green-900 pt-2 border-t border-green-200 text-base">
                           <span>Total to Collect</span>
-                          <span>₹{cashOrder.total.toLocaleString('en-IN')}</span>
+                          <span>₹{msgTotal || cashOrder.total.toLocaleString('en-IN')}</span>
                         </div>
                       </div>
                     ) : (
